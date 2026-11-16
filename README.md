@@ -1,75 +1,71 @@
-# AI Investment System (AIS) — v0.5
+# AIS v0.6 — Investment Terminal
 
-**Sistema de investigacion cuantitativa y backtesting historico (NO hace trading real).**
+**Aplicación de análisis financiero y backtesting histórico en modo simulación.** No realiza transacciones reales ni solicita acceso a bancos, brókeres o claves API.
 
-AIS consulta datos historicos de Yahoo Finance (`yfinance`), calcula indicadores y compara una estrategia experimental long-only/cash con comprar y mantener. El modo `--demo` usa **precios sinteticos generados localmente** y funciona sin acceso a Internet.
+## Inicia la app en Windows (VS Code)
 
-## Requisitos
-- Python 3.11+ (Windows PowerShell, Linux o macOS).
-- Las bibliotecas de `requirements.txt` (`pandas`, `numpy`, `yfinance`).
-- Internet solo para analizar **datos reales historicos**. No hay ninguna conexion a broker ni envio de ordenes.
-
-## Comandos en VS Code (PowerShell)
-
-Desde la carpeta AIS:
+Abre la carpeta `AI_INVESTMENT_SYSTEM` en VS Code y, en la terminal PowerShell:
 
 ```powershell
+git status
 git pull origin main
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+python -m streamlit run streamlit_app.py
+```
+
+Si la terminal ya muestra `(.venv)`, puedes omitir la activación. Si `git status` muestra archivos locales modificados, guárdalos o respáldalos primero; no sobrescribas trabajo.
+
+Tras instalar dependencias, en Windows también puedes abrir **`INICIAR_AIS.bat` con doble clic** para arrancar el dashboard sin introducir comandos. La app se enlaza a `127.0.0.1` (solo este equipo).
+
+Streamlit inicia un servidor **local** que normalmente se abre en `http://localhost:8501` desde el navegador. Para cerrarlo, vuelve a la terminal y pulsa `Ctrl+C`.
+
+La primera pantalla no contiene datos hasta ejecutar una simulación. Empieza por **Demo sintética (sin Internet)** y presiona **Ejecutar análisis y simulación**. Después prueba **Históricos de Yahoo** para descargar precios reales históricos cuando haya Internet. Los datos reales pueden estar demorados o incompletos. **Nunca se sustituyen por precios inventados si la descarga falla.**
+
+## Qué hace la interfaz
+
+- **Resumen:** capital ficticio, curva de equity, drawdown, exposición, señales experimentales y riesgo.
+- **Mercado:** velas OHLC y gráficos interactivos de SMA10, SMA30, RSI14 y MACD.
+- **Operaciones:** historial de operaciones cerradas (simuladas) y exportación CSV.
+- **Historial:** sesiones y parámetros guardados localmente en SQLite, más exportación JSON.
+- **Metodología:** supuestos y limitaciones.
+- **Barra lateral:** origen de datos, mercado, historial, capital ficticio, porcentaje por entrada, stop, comisiones y deslizamiento.
+
+**No hay inversión en vivo.** Los importes del panel son ficticios y están en **unidades de la moneda de cotización del activo**, no implican saldo real en MXN ni requieren depositar dinero.
+
+## Ejecuta pruebas
+
+```powershell
 python -m unittest discover -s tests -v
 python main.py --demo --symbols SPY
-python main.py
 ```
 
-**El comando con `--demo` es una prueba offline y usa DATOS INVENTADOS.** `python main.py` descarga un historial de aproximadamente 2 años para SPY, BTC-USD y EURUSD=X. Si Yahoo no responde, el sistema no inventa cotizaciones y muestra el error.
+El CLI de v0.5 continúa disponible: `python main.py` o `python main.py --mode backtest --period 5y --symbols SPY`.
 
-Otros modos:
-```powershell
-python main.py --mode analyze --symbols SPY
-python main.py --mode backtest --period 5y --symbols BTC-USD
-python main.py --demo --mode backtest --symbols EURUSD=X
+## Diseño y datos
+
+```text
+streamlit_app.py           # interfaz local (Streamlit + Plotly)
+app/service.py             # orquestación de análisis/simulación
+app/storage.py             # base SQLite local
+data/demo_data.py          # fuente sintética determinista
+data/market_data.py        # fuente histórica Yahoo
+analysis/                  # SMA, RSI, MACD, señales y riesgo
+backtesting/engine.py      # motor histórico long-only/cash
+data/ais_history.sqlite3   # se crea localmente; ignorada por Git
 ```
 
-## Arquitectura
+Cada sesión contiene el origen de datos, velas, señales, métricas, curva de capital y operaciones simuladas. SQLite **no está cifrado**; mantenlo en tu equipo y no publiques archivos con información privada. La aplicación se ejecuta localmente; **no proporciona usuarios, contraseñas, hosting, acceso remoto, ni autenticación**. No la expongas directamente a Internet ni la publiques como servicio sin medidas de seguridad adicionales.
 
-- `data/market_data.py`: acceso a datos historicos de Yahoo.
-- `data/demo_data.py`: serie OHLCV reproducible 100% sintetica.
-- `analysis/indicators.py`: SMA10/30, RSI14 y MACD.
-- `analysis/signal_engine.py`: clasificacion determinista explicable; sin parametros entrenados.
-- `analysis/risk_engine.py`: mediciones descriptivas de volatilidad y drawdown.
-- `backtesting/engine.py`: simulador historico long-only/cash, 0 apalancamiento, sin operacion real.
-- `tests/`: tests unitarios e integracion offline.
-- `.github/workflows/ci.yml`: GitHub Actions verifica codigo, pruebas y CLI demo.
+## Reglas del backtest
 
-## Diseño del backtest
+1. El indicador histórico se calcula con velas anteriores a la apertura de ejecución: no usa el futuro.
+2. La señal se ejecuta a la siguiente apertura; comisión y deslizamiento se aplican en la simulación.
+3. Solo posiciones largas con asignación parcial de efectivo, sin margen ni venta corta.
+4. Stop aproximado basado en el cierre anterior; el precio siguiente puede abrir más abajo (gap).
+5. Registra operaciones cerradas, retornos netos, drawdown, volatilidad anualizada, Sharpe simplificado y exposición.
+6. Línea de **comprar y mantener**: benchmark bruto sin comisiones ni misma exposición, por lo que no es una comparación ajustada al riesgo.
 
-1. Recibe velas **Open y Close**, en orden cronologico, con indicadores calculados. Rechaza precios invalidos y filas desordenadas.
-2. Tras 50 velas de calentamiento, crea cada señal con **solo las velas anteriores** a la fecha de ejecucion; nunca consulta la vela actual para decidir.
-3. Ejecuta la orden simulada **a la apertura siguiente**; suma comision de 10 puntos basicos por lado y 5 puntos basicos de deslizamiento por lado.
-4. Estrategia experimental: `CANDIDATO_COMPRA` entra largo si no hay posicion; `CANDIDATO_VENTA` sale si hay posicion. Ademas, salida si el cierre anterior queda 8% bajo el precio de entrada, ejecutada a la siguiente apertura (puede haber gaps).
-5. Asigna solo el **25% del efectivo disponible** en cada entrada; no hace ventas en corto, margen, prestamos ni compras adicionales.
-6. Registra toda entrada/salida completada, curva de capital, rendimiento neto, drawdown, volatilidad anualizada, Sharpe simplificado, exposicion y porcentaje de operaciones cerradas positivas.
-7. Comparacion con buy-and-hold **bruto** sin comisiones desde final del calentamiento (no es perfectamente comparable con la estrategia de asignacion parcial de capital).
+**No equivale a una estrategia probada o rentable.** Falta validación fuera de muestra, walk-forward, comprobación de sesgos, spreads variables, intereses del efectivo, fiscalidad y análisis estadístico. Yahoo Finance puede no ofrecer datos adecuados para operar y el último precio puede no estar cerrado. La "puntuación" del motor de señales indica acuerdo de reglas, **no probabilidad de acierto**.
 
-**Capital inicial: 10,000 unidades FICTICIAS de la moneda de cotizacion (usualmente USD), NO son pesos de la cuenta real ni requieren deposito alguno.**
-
-Las clases de activos tienen sesiones distintas (acciones, forex, cripto 24/7). La anualizacion usa 252 periodos diarios para SPY/forex y 365 para BTC, sin corregir festivos; es una aproximacion. El Sharpe supone tasa libre de riesgo 0. Los reportes no incluyen intereses del efectivo, impuestos, liquidez, spreads variables, dividendos por separado ni beneficios del lending. Una posicion abierta al final se valora al ultimo cierre sin comision de liquidacion estimada.
-
-## Archivos de salida (locales, ignorados por Git)
-
-```
-data/SPY_analyzed.csv
-data/SPY_report.json
-data/SPY_backtest_equity.csv
-data/SPY_backtest_trades.csv
-data/SPY_backtest_summary.json
-```
-
-Los nombres BTC y EURUSD se construyen del mismo modo. Nunca subir claves de APIs.
-
-## Limitaciones y proximos pasos
-
-Este programa **funciona como analizador y backtester**, no es una estrategia validada o rentable. Tres indicadores correlacionados no dan probabilidad de exito. Backtesting historico puede sobreajustarse o tener sesgo de seleccion. Para evaluar utilidad real faltan validacion fuera de muestra, pruebas walk-forward, analisis estadistico, comparadores con costos equivalentes y paper trading cronologico con mercado actual. Las fuentes de Yahoo pueden estar incompletas o demoradas. No usar dinero real basandose en estas etiquetas.
-
-En caso de duda, comienza con `python main.py --demo` y luego `python main.py`. Revisa el resultado de las pruebas de GitHub Actions antes de fusionar una propuesta de cambios.
+AIS v0.6 mantiene el módulo de consola y agrega una interfaz para experimentación, no un asesor de inversiones ni un sistema de transacciones reales.

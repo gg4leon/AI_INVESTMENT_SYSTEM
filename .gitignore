@@ -15,9 +15,12 @@ __pycache__/
 # Local IDE files
 .vscode/
 
-# Generated artifacts
+# Generated artifacts (may contain local research data)
 data/*.csv
 data/*.json
+data/*.sqlite3
+data/*.sqlite3-*
+data/*.db
 *.log
 .pytest_cache/
 .coverage
