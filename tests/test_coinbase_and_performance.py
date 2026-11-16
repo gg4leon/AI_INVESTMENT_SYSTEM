@@ -68,7 +68,7 @@ def q(symbol,time,bid,ask=None,provider=COINBASE_PROVIDER):
     return PublicQuote(
         symbol=symbol,exchange_symbol=symbol,
         bid=bid,ask=ask or bid*1.0001,
-        bid_qty=1_000,ask_qty=1_000,
+        bid_qty=50_000,ask_qty=50_000,
         exchange_time=time.isoformat(),received_time=time.isoformat(),
         provider=provider,
     )
