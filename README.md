@@ -1,4 +1,4 @@
-# AIS v0.8 — Investment Terminal con Nory MicroLab
+# AIS v0.8.1 — Investment Terminal con Nory MicroLab
 
 Plataforma educativa de investigación, gráficos, noticias y operaciones **100% simuladas**. **No conecta a brókeres, no ejecuta compras/ventas reales y no requiere depositar dinero.** El logotipo de AIS conserva el diseño original aportado por su creador, vectorizado para su uso en la interfaz.
 
@@ -190,6 +190,47 @@ y controles de seguridad antes de siquiera evaluar una integración real.
 
 ---
 
+
+## Nory v0.8.1 — AUTO desde la aplicación (sin terminal adicional)
+
+Ahora puedes activar la simulación continua directamente con **▶ Iniciar automático (1 s)**,
+en **⚡ NORY MICRO LAB**. Ya **no necesitas presionar «1 segundo» ni «30 segundos»**.
+
+1. Cierra primero cualquier trabajador `python -m nory.micro_worker` que esté ejecutándose
+   sobre la misma base de datos. No uses el trabajador de terminal y AUTO al mismo tiempo.
+2. Arranca la app normal desde VS Code con `python -m streamlit run streamlit_app.py`.
+3. Abre MicroLab y selecciona los activos y el escenario **antes de empezar**.
+4. Pulsa **▶ Iniciar automático (1 s)**. El botón habilita explícitamente la simulación
+   y crea **un único hilo local**; las métricas se refrescan aproximadamente cada 2 segundos.
+5. Pulsa **■ Detener automático** para pararlo de forma segura. También puedes
+   usar **Pausar simulador**, que detiene AUTO y pausa la base de datos.
+
+El trabajo continúa aunque cierres la pestaña del navegador, **solo mientras
+el proceso local de Streamlit siga encendido**. Cerrar VS Code/terminal, finalizar
+Python o suspender/apagar Windows detiene el trabajo. Después de reiniciar
+Streamlit, AUTO **no se reinicia solo**: requiere otra pulsación explícita.
+
+La velocidad de un ciclo por segundo es una **cadencia aproximada de software**;
+puede haber retrasos si el cálculo tarda, si Windows está ocupado o si SQLite espera
+un bloqueo. La velocidad **no implica acceso a un mercado real**: las cotizaciones
+y los segundos son fabricados.
+
+Seguridad: no se inicia al cargar la aplicación, solo al pulsar el botón.
+AUTO detecta errores y límites de pérdidas, detiene el hilo y vuelve a PAUSADO.
+Evita iniciar dos bucles desde el mismo proceso de Streamlit. **No es un
+sistema multiusuario o de múltiples procesos; no lo alojes públicamente ni lo
+ejecutes al mismo tiempo con otros workers**. El historial queda en
+`data/nory_micro.sqlite3`.
+
+**No confundas «sin pérdidas en una simulación» con rentabilidad demostrada.**
+Los precios se inventan con ciertas dinámicas de reversión, que pueden favorecer
+a una estrategia que busque rebotes. Validar con datos de mercado realmente
+cronológicos, spreads, comisiones y pruebas fuera de muestra es una etapa pendiente.
+
+Archivo nuevo: `nory/auto_runner.py`, con pruebas offline
+en `tests/test_auto_runner.py`.
+
+---
 ## Nory v0.8 — MicroLab de operaciones pequeñas (~1 segundo)
 
 **IMPORTANTE:** es una simulación local con PRECIOS INVENTADOS; no usa velas por
