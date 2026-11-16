@@ -57,24 +57,46 @@ def summarize_live(db_path=LIVE_DB, source="KRAKEN"):
         state=con.execute("SELECT * FROM live_state WHERE id=1").fetchone()
         if state is None:
             return {"available":False,"source":source,"reason":"Empty paper account"}
-        fills=_read_rows(con,"SELECT * FROM live_fills ORDER BY id DESC")
+        # Bounded UI samples while lifetime aggregates remain correct.
+        fills=_read_rows(con,"SELECT * FROM live_fills ORDER BY id DESC LIMIT 500")
         decisions=_read_rows(con,"SELECT decision,reason,symbol,quote_time FROM live_decisions ORDER BY id DESC LIMIT 2000")
-        equity=_read_rows(con,"SELECT * FROM live_equity ORDER BY id ASC")
+        equity=list(reversed(_read_rows(
+            con,"SELECT * FROM live_equity ORDER BY id DESC LIMIT 1200"
+        )))
         positions=_read_rows(con,"SELECT * FROM live_positions ORDER BY symbol")
-        per_asset=_read_rows(con,"SELECT symbol,COUNT(*) AS quote_count,MIN(exchange_time) AS first,MAX(exchange_time) AS last,AVG((ask-bid)*20000/(ask+bid)) AS spread_bps FROM live_quotes GROUP BY symbol ORDER BY quote_count DESC")
+        per_asset=_read_rows(con,
+            "SELECT symbol,COUNT(*) AS quote_count,MIN(exchange_time) AS first,"
+            "MAX(exchange_time) AS last,AVG((ask-bid)*20000/(ask+bid)) AS spread_bps "
+            "FROM live_quotes GROUP BY symbol ORDER BY quote_count DESC")
         n_obs=sum(int(p["quote_count"]) for p in per_asset)
-        closed=[f for f in fills if f["side"]=="SELL"]
-        buys=[f for f in fills if f["side"]=="BUY"]
-        realized=sum(float(f["realized_pnl"]) for f in closed)
-        fees=sum(float(f["fee"]) for f in fills)
-        win=sum(float(f["realized_pnl"])>0 for f in closed)
-        loss=sum(float(f["realized_pnl"])<0 for f in closed)
+        totals=con.execute(
+            "SELECT COUNT(*) AS entries,"
+            "SUM(CASE WHEN side='BUY' THEN 1 ELSE 0 END) AS buys,"
+            "SUM(CASE WHEN side='SELL' THEN 1 ELSE 0 END) AS sells,"
+            "SUM(CASE WHEN side='SELL' AND realized_pnl>0 THEN 1 ELSE 0 END) AS wins,"
+            "SUM(CASE WHEN side='SELL' AND realized_pnl<0 THEN 1 ELSE 0 END) AS losses,"
+            "COALESCE(SUM(fee),0) AS fees,"
+            "COALESCE(SUM(CASE WHEN side='SELL' THEN realized_pnl ELSE 0 END),0) AS realized "
+            "FROM live_fills"
+        ).fetchone()
+        buys=int(totals["buys"] or 0)
+        sells=int(totals["sells"] or 0)
+        win=int(totals["wins"] or 0)
+        loss=int(totals["losses"] or 0)
+        fees=float(totals["fees"] or 0)
+        realized=float(totals["realized"] or 0)
         initial=float(state["initial_cash"])
         total=float(state["equity"])-initial
         returns=total/initial*100 if initial>0 else 0.
-        observed_dd=max((float(x["drawdown_pct"]) for x in equity),default=0.)
-        average_exp=sum(float(x["exposure_pct"]) for x in equity)/len(equity) if equity else 0.
-        peak_exp=max((float(x["exposure_pct"]) for x in equity),default=0.)
+        eq_tot=con.execute(
+            "SELECT COALESCE(MAX(drawdown_pct),0) AS dd,"
+            "COALESCE(AVG(exposure_pct),0) AS avg_exp,"
+            "COALESCE(MAX(exposure_pct),0) AS peak_exp "
+            "FROM live_equity"
+        ).fetchone()
+        observed_dd=float(eq_tot["dd"])
+        average_exp=float(eq_tot["avg_exp"])
+        peak_exp=float(eq_tot["peak_exp"])
         btc=con.execute(
             "SELECT MIN(id) AS oldest,MAX(id) AS newest FROM live_quotes WHERE symbol='BTC-USD'"
         ).fetchone()
@@ -86,8 +108,8 @@ def summarize_live(db_path=LIVE_DB, source="KRAKEN"):
         perf=PerformanceStats(
             source=source,cash=float(state["cash"]),equity=float(state["equity"]),
             return_pct=returns,starting_capital=initial,
-            closed_sells=len(closed),simulated_buys=len(buys),
-            wins=win,losses=loss,win_rate_pct=(win/len(closed)*100 if closed else None),
+            closed_sells=sells,simulated_buys=buys,
+            wins=win,losses=loss,win_rate_pct=(win/sells*100 if sells else None),
             realized_net_pnl=realized,estimated_open_pnl=total-realized,
             total_fees=fees,max_drawdown_pct=observed_dd,
             average_exposure_pct=average_exp,peak_exposure_pct=peak_exp,
@@ -96,13 +118,13 @@ def summarize_live(db_path=LIVE_DB, source="KRAKEN"):
             benchmark_note="BTC hypothetical 100% gross hold over recorded quote window; costs/exposure NOT matched.",
         )
         decision_counts=Counter(r["decision"] for r in decisions)
-        grouped=defaultdict(lambda:{"buys":0,"sells":0,"net_realized_pnl":0.,"fees":0.})
-        for f in fills:
-            row=grouped[f["symbol"]]
-            row["buys" if f["side"]=="BUY" else "sells"]+=1
-            row["net_realized_pnl"]+=float(f["realized_pnl"])
-            row["fees"]+=float(f["fee"])
-        assets=[{"symbol":sym,**vals} for sym,vals in sorted(grouped.items())]
+        assets=_read_rows(con,
+            "SELECT symbol,"
+            "SUM(CASE WHEN side='BUY' THEN 1 ELSE 0 END) AS buys,"
+            "SUM(CASE WHEN side='SELL' THEN 1 ELSE 0 END) AS sells,"
+            "COALESCE(SUM(realized_pnl),0) AS net_realized_pnl,"
+            "COALESCE(SUM(fee),0) AS fees "
+            "FROM live_fills GROUP BY symbol ORDER BY symbol")
         return {
             "available":True,"source":source,"stats":perf.as_dict(),
             "equity":equity,"fills":fills[:500],"decisions":decisions[:350],
