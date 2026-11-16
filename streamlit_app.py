@@ -357,48 +357,56 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
         "Necesita PC encendida. Ctrl+C detiene. "
         "Si cambias el escenario, primero debes finalizar y respaldar la sesión anterior."
     )
-    st.divider()
-    state_cols = st.columns(4)
-    eq=micro_state["equity"]
-    cash=micro_state["cash"]
-    state_cols[0].metric("Capital ficticio USD",f"$ {eq:,.2f}" if eq is not None else "$ 10,000.00")
-    state_cols[1].metric("Efectivo restante",f"$ {cash:,.2f}" if cash is not None else "Sin operaciones")
-    state_cols[2].metric("Segundo virtual",f'{micro_state["tick"]:,}')
-    state_cols[3].metric("Posiciones abiertas",len(micro_data["positions"]))
-    if micro_data["equity"]:
-        curve=pd.DataFrame(micro_data["equity"])
-        fig=_figure("Capital neto ficticio tras spread, fees y deslizamiento",310)
-        fig.add_trace(go.Scatter(
-            x=curve["tick"], y=curve["equity"],
-            name="Nory MicroLab · simulación",
-            line=dict(color="#ff0d00",width=2.7),mode="lines",
-        ))
-        fig.update_xaxes(title="Segundos virtuales generados")
-        fig.update_yaxes(title="USD ficticios")
-        st.plotly_chart(fig,use_container_width=True)
-        risk_cols=st.columns(2)
-        risk_cols[0].metric("Exposición ficticia",f'{curve["exposure_pct"].iloc[-1]:.2f}%')
-        risk_cols[1].metric("Caída desde máximo",f'{curve["drawdown_pct"].iloc[-1]:.2f}%')
-    if micro_data["positions"]:
-        st.markdown("**Cartera compartida entre empresas y mercados**")
-        st.dataframe(pd.DataFrame(micro_data["positions"]),hide_index=True,use_container_width=True)
-    if micro_data["pending"]:
-        st.markdown("**Órdenes pendientes del próximo segundo virtual**")
-        st.dataframe(pd.DataFrame(micro_data["pending"]),hide_index=True,use_container_width=True)
-    if micro_data["trades"]:
-        st.markdown("**Movimientos ficticios (incluyen todos los costes)**")
-        st.dataframe(pd.DataFrame(micro_data["trades"]),hide_index=True,use_container_width=True)
-    if micro_data["decisions"]:
-        with st.expander("🧠 Auditoría: por qué Nory compró, esperó o bloqueó"):
-            st.dataframe(
-                pd.DataFrame(micro_data["decisions"]),
-                hide_index=True,use_container_width=True,
-            )
-    st.caption(
-        "Una caída abrupta se trata como RIESGO SIN CAUSA VERIFICADA. "
-        "Nory puede bloquearla en vez de comprar. Los titulares RSS no provocan compras, "
-        "y no usamos rumores o información privada para operar."
-    )
+    @st.fragment(run_every="2s")
+    def _render_micro_metrics():
+        micro_data=micro_dashboard()
+        micro_state=micro_data["state"]
+        st.divider()
+        state_cols = st.columns(4)
+        eq=micro_state["equity"]
+        cash=micro_state["cash"]
+        state_cols[0].metric("Capital ficticio USD",f"$ {eq:,.2f}" if eq is not None else "$ 10,000.00")
+        state_cols[1].metric("Efectivo restante",f"$ {cash:,.2f}" if cash is not None else "Sin operaciones")
+        state_cols[2].metric("Segundo virtual",f'{micro_state["tick"]:,}')
+        state_cols[3].metric("Posiciones abiertas",len(micro_data["positions"]))
+        if micro_data["equity"]:
+            curve=pd.DataFrame(micro_data["equity"])
+            fig=_figure("Capital neto ficticio tras spread, fees y deslizamiento",310)
+            fig.add_trace(go.Scatter(
+                x=curve["tick"], y=curve["equity"],
+                name="Nory MicroLab · simulación",
+                line=dict(color="#ff0d00",width=2.7),mode="lines",
+            ))
+            fig.update_xaxes(title="Segundos virtuales generados")
+            fig.update_yaxes(title="USD ficticios")
+            st.plotly_chart(fig,use_container_width=True)
+            risk_cols=st.columns(2)
+            risk_cols[0].metric("Exposición ficticia",f'{curve["exposure_pct"].iloc[-1]:.2f}%')
+            risk_cols[1].metric("Caída desde máximo",f'{curve["drawdown_pct"].iloc[-1]:.2f}%')
+        if micro_data["positions"]:
+            st.markdown("**Cartera compartida entre empresas y mercados**")
+            st.dataframe(pd.DataFrame(micro_data["positions"]),hide_index=True,use_container_width=True)
+        if micro_data["pending"]:
+            st.markdown("**Órdenes pendientes del próximo segundo virtual**")
+            st.dataframe(pd.DataFrame(micro_data["pending"]),hide_index=True,use_container_width=True)
+        if micro_data["trades"]:
+            st.markdown("**Movimientos ficticios (incluyen todos los costes)**")
+            st.dataframe(pd.DataFrame(micro_data["trades"]),hide_index=True,use_container_width=True)
+        if micro_data["decisions"]:
+            with st.expander("🧠 Auditoría: por qué Nory compró, esperó o bloqueó"):
+                st.dataframe(
+                    pd.DataFrame(micro_data["decisions"]),
+                    hide_index=True,use_container_width=True,
+                )
+        st.caption(
+            "Una caída abrupta se trata como RIESGO SIN CAUSA VERIFICADA. "
+            "Nory puede bloquearla en vez de comprar. Los titulares RSS no provocan compras, "
+            "y no usamos rumores o información privada para operar."
+        )
+
+    _render_micro_metrics()
+    st.caption("Las métricas locales se actualizan cada ~2 s con el navegador abierto. "
+               "El worker es independiente y puede continuar sin el navegador.")
 
 # NORY: portfolio central. Independent of the legacy per-asset paper simulator.
 with st.expander("🔺 NORY v0.7 · Cartera multiactivo autónoma (ficticia)", expanded=True):
