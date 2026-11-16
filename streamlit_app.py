@@ -180,13 +180,13 @@ with st.sidebar:
     st.markdown('<div class="ais-eyebrow">AIS / CONTROL CENTER</div>', unsafe_allow_html=True)
     st.subheader("Configurar simulación")
     st.caption("Todos los importes son ficticios. Ninguna opción mueve dinero.")
+    category = st.selectbox("Tipo de mercado", options=list(CATEGORIES))
+    matching = [m.symbol for m in CATALOG if m.category == category]
+    symbol = st.selectbox(
+        "Activo para análisis", options=matching,
+        format_func=lambda x: f"{x} · {MARKETS[x]}",
+    )
     with st.form("new_run_form"):
-        category = st.selectbox("Tipo de mercado", options=list(CATEGORIES))
-        matching = [m.symbol for m in CATALOG if m.category == category]
-        symbol = st.selectbox(
-            "Activo para análisis", options=matching,
-            format_func=lambda x: f"{x} · {MARKETS[x]}",
-        )
         data_label = st.radio(
             "Fuente de datos",
             ["Demo sintética (sin Internet)", "Históricos de Yahoo"],
