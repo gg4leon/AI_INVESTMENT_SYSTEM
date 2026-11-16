@@ -181,7 +181,7 @@ class NoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_symbols(["BAD"])
         with self.assertRaises(ValueError):
-            validate_symbols(["SPY"]*21) if False else validate_symbols([])
+            validate_symbols([])
 
     def test_priority_and_risk_sizing_heuristics(self):
         safer_score,safer_weight=risk_priority(.008,"CANDIDATO_COMPRA")
