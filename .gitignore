@@ -17,6 +17,7 @@ __pycache__/
 
 # Generated artifacts
 data/*.csv
+data/*.json
 *.log
 .pytest_cache/
 .coverage
