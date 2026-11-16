@@ -1,0 +1,25 @@
+
+# Entorno virtual de Python
+.venv/
+venv/
+env/
+
+# Archivos temporales de Python
+__pycache__/
+*.pyc
+
+# Configuración local
+.env
+.env.*
+!.env.example
+
+# Archivos de VS Code
+.vscode/
+
+# Datos generados por AIS
+data/*.csv
+
+# Archivos temporales
+*.log
+.DS_Store
+
