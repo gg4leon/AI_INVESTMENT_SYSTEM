@@ -1,0 +1,255 @@
+{
+  "test": "LIVE_PUBLIC_WS_AND_AUTONOMOUS_PAPER_SOAK",
+  "ended_at": 1794858817.4805498,
+  "started_at": 1794858047.9392848,
+  "duration_seconds": 769.5412666797638,
+  "result": {
+    "coinbase": {
+      "stats": {
+        "account": "coinbase:trend",
+        "fees": 0.0,
+        "fills": 0,
+        "buys": 0,
+        "sells": 0,
+        "realized": 0.0,
+        "wins": 0,
+        "losses": 0,
+        "closed": 0,
+        "gross_profits": 0.0,
+        "gross_losses": 0.0,
+        "net_pnl": 0.0,
+        "unrealized_pnl": 0.0,
+        "win_rate_pct": null,
+        "average_win": null,
+        "average_loss": null
+      },
+      "markets": [
+        {
+          "symbol": "BTC-USD",
+          "fresh": true,
+          "samples": 841,
+          "action": "BLOCK_RISK",
+          "reason": "Liquidez visible insuficiente. Seguimiento de tendencia: 7/9 condiciones. Margen heurístico 4.5 bps; coste ida/vuelta 130.0 bps. No cumplen: liquidez_visible, margen_sobre_costes"
+        },
+        {
+          "symbol": "ETH-USD",
+          "fresh": true,
+          "samples": 592,
+          "action": "BLOCK_COSTS",
+          "reason": "Seguimiento de tendencia: 8/9 condiciones. Margen heurístico 11.6 bps; coste ida/vuelta 132.0 bps. No cumplen: margen_sobre_costes"
+        },
+        {
+          "symbol": "SOL-USD",
+          "fresh": true,
+          "samples": 113,
+          "action": "WARMUP",
+          "reason": "Preparando historial: 113/120 muestras auténticas en intervalos distintos."
+        },
+        {
+          "symbol": "XRP-USD",
+          "fresh": true,
+          "samples": 454,
+          "action": "WAIT",
+          "reason": "Seguimiento de tendencia: 5/9 condiciones. Margen heurístico 12.3 bps; coste ida/vuelta 132.1 bps. No cumplen: media_corta_sobre_media, precio_sobre_media, momentum_positivo, margen_sobre_costes"
+        },
+        {
+          "symbol": "ADA-USD",
+          "fresh": false,
+          "samples": 3,
+          "action": "STALE",
+          "reason": "Cotización vencida o no recibida; no puede generar nuevas operaciones."
+        },
+        {
+          "symbol": "DOGE-USD",
+          "fresh": false,
+          "samples": 5,
+          "action": "STALE",
+          "reason": "Cotización vencida o no recibida; no puede generar nuevas operaciones."
+        }
+      ],
+      "feeds": {
+        "coinbase": {
+          "provider": "coinbase",
+          "state": "LIVE",
+          "messages": 20926,
+          "valid_quotes": 15740,
+          "invalid_messages": 1,
+          "reconnects": 0,
+          "last_message_ts": 1794858817.3017468,
+          "last_quote_ts": 1794858817.3017468,
+          "latency_ms": 84.84578132629395,
+          "error": null,
+          "subscriptions": [
+            "ADA-USD",
+            "BTC-USD",
+            "DOGE-USD",
+            "ETH-USD",
+            "SOL-USD",
+            "XRP-USD"
+          ],
+          "subscription_errors": {},
+          "endpoint": "wss://ws-feed.exchange.coinbase.com"
+        },
+        "kraken": {
+          "provider": "kraken",
+          "state": "LIVE",
+          "messages": 96894,
+          "valid_quotes": 96024,
+          "invalid_messages": 1,
+          "reconnects": 0,
+          "last_message_ts": 1794858817.3935354,
+          "last_quote_ts": 1794858817.3935354,
+          "latency_ms": 92.60034561157227,
+          "error": null,
+          "subscriptions": [
+            "BTC-USD",
+            "ETH-USD",
+            "SOL-USD",
+            "XRP-USD",
+            "ADA-USD",
+            "DOGE-USD"
+          ],
+          "subscription_errors": {},
+          "endpoint": "wss://ws.kraken.com/v2"
+        }
+      },
+      "metrics": {
+        "accepted_quotes": 70536,
+        "cycles_with_new_quotes": 1713,
+        "coalesced_updates": 60063,
+        "duplicates_or_out_of_order": 41212,
+        "history_gap_resets": 87,
+        "stale_rejected": 16,
+        "coordinator_cycles": 1715
+      },
+      "fatal_error": null,
+      "running": true,
+      "timestamp": 1794858817.4614785,
+      "started_at": 1794858047.9392848
+    },
+    "kraken": {
+      "stats": {
+        "account": "kraken:trend",
+        "fees": 0.0,
+        "fills": 0,
+        "buys": 0,
+        "sells": 0,
+        "realized": 0.0,
+        "wins": 0,
+        "losses": 0,
+        "closed": 0,
+        "gross_profits": 0.0,
+        "gross_losses": 0.0,
+        "net_pnl": 0.0,
+        "unrealized_pnl": 0.0,
+        "win_rate_pct": null,
+        "average_win": null,
+        "average_loss": null
+      },
+      "markets": [
+        {
+          "symbol": "BTC-USD",
+          "fresh": true,
+          "samples": 775,
+          "action": "BLOCK_COSTS",
+          "reason": "Seguimiento de tendencia: 8/9 condiciones. Margen heurístico 7.2 bps; coste ida/vuelta 90.0 bps. No cumplen: margen_sobre_costes"
+        },
+        {
+          "symbol": "ETH-USD",
+          "fresh": true,
+          "samples": 757,
+          "action": "BLOCK_RISK",
+          "reason": "Liquidez visible insuficiente. Seguimiento de tendencia: 7/9 condiciones. Margen heurístico 6.2 bps; coste ida/vuelta 91.1 bps. No cumplen: liquidez_visible, margen_sobre_costes"
+        },
+        {
+          "symbol": "SOL-USD",
+          "fresh": true,
+          "samples": 699,
+          "action": "WAIT",
+          "reason": "Seguimiento de tendencia: 7/9 condiciones. Margen heurístico 10.5 bps; coste ida/vuelta 91.4 bps. No cumplen: momentum_positivo, margen_sobre_costes"
+        },
+        {
+          "symbol": "XRP-USD",
+          "fresh": true,
+          "samples": 718,
+          "action": "WAIT",
+          "reason": "Seguimiento de tendencia: 5/9 condiciones. Margen heurístico 7.2 bps; coste ida/vuelta 91.2 bps. No cumplen: media_corta_sobre_media, precio_sobre_media, momentum_positivo, margen_sobre_costes"
+        },
+        {
+          "symbol": "ADA-USD",
+          "fresh": true,
+          "samples": 557,
+          "action": "BLOCK_RISK",
+          "reason": "Liquidez visible insuficiente. Seguimiento de tendencia: 3/9 condiciones. Margen heurístico 10.3 bps; coste ida/vuelta 92.1 bps. No cumplen: media_corta_sobre_media, precio_sobre_media, momentum_positivo, rsi_no_extremo, liquidez_visible, margen_sobre_costes"
+        },
+        {
+          "symbol": "DOGE-USD",
+          "fresh": true,
+          "samples": 49,
+          "action": "BLOCK_RISK",
+          "reason": "Liquidez visible insuficiente. Preparando historial: 49/120 muestras auténticas en intervalos distintos."
+        }
+      ],
+      "feeds": {
+        "coinbase": {
+          "provider": "coinbase",
+          "state": "LIVE",
+          "messages": 20926,
+          "valid_quotes": 15740,
+          "invalid_messages": 1,
+          "reconnects": 0,
+          "last_message_ts": 1794858817.3017468,
+          "last_quote_ts": 1794858817.3017468,
+          "latency_ms": 84.84578132629395,
+          "error": null,
+          "subscriptions": [
+            "ADA-USD",
+            "BTC-USD",
+            "DOGE-USD",
+            "ETH-USD",
+            "SOL-USD",
+            "XRP-USD"
+          ],
+          "subscription_errors": {},
+          "endpoint": "wss://ws-feed.exchange.coinbase.com"
+        },
+        "kraken": {
+          "provider": "kraken",
+          "state": "LIVE",
+          "messages": 96894,
+          "valid_quotes": 96024,
+          "invalid_messages": 1,
+          "reconnects": 0,
+          "last_message_ts": 1794858817.3935354,
+          "last_quote_ts": 1794858817.3935354,
+          "latency_ms": 92.60034561157227,
+          "error": null,
+          "subscriptions": [
+            "BTC-USD",
+            "ETH-USD",
+            "SOL-USD",
+            "XRP-USD",
+            "ADA-USD",
+            "DOGE-USD"
+          ],
+          "subscription_errors": {},
+          "endpoint": "wss://ws.kraken.com/v2"
+        }
+      },
+      "metrics": {
+        "accepted_quotes": 70536,
+        "cycles_with_new_quotes": 1713,
+        "coalesced_updates": 60063,
+        "duplicates_or_out_of_order": 41212,
+        "history_gap_resets": 87,
+        "stale_rejected": 16,
+        "coordinator_cycles": 1715
+      },
+      "fatal_error": null,
+      "running": true,
+      "timestamp": 1794858817.472695,
+      "started_at": 1794858047.9392848
+    }
+  },
+  "limitations": "A brief Linux cloud session. No proof of profitability, overnight stability or physical Windows/i5 performance."
+}

@@ -1,0 +1,186 @@
+{
+  "test": "LIVE_PUBLIC_CONTEXT_AND_WS_RESTART_CHECK",
+  "checked_at": 1794862288.7032743,
+  "providers": {
+    "coinbase": {
+      "running_after_restart": false,
+      "fatal_error": null,
+      "markets": [
+        {
+          "symbol": "BTC-USD",
+          "fresh": true,
+          "samples": 239,
+          "analysis_span_seconds": 14368.356388092041,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "ETH-USD",
+          "fresh": true,
+          "samples": 238,
+          "analysis_span_seconds": 14367.452420949936,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "SOL-USD",
+          "fresh": true,
+          "samples": 240,
+          "analysis_span_seconds": 14368.214524030685,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "XRP-USD",
+          "fresh": true,
+          "samples": 238,
+          "analysis_span_seconds": 14367.85767006874,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "ADA-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14366.303280115128,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "DOGE-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14366.317425012589,
+          "history_status": {
+            "state": "READY",
+            "error": null,
+            "candles": 300
+          }
+        }
+      ],
+      "feed": {
+        "provider": "coinbase",
+        "state": "LIVE",
+        "messages": 4477,
+        "valid_quotes": 3941,
+        "invalid_messages": 1,
+        "reconnects": 0,
+        "last_message_ts": 1794862288.3811564,
+        "last_quote_ts": 1794862288.3811564,
+        "latency_ms": 24.768352508544922,
+        "error": null,
+        "subscriptions": [
+          "ADA-USD",
+          "BTC-USD",
+          "DOGE-USD",
+          "ETH-USD",
+          "SOL-USD",
+          "XRP-USD"
+        ],
+        "subscription_errors": {},
+        "endpoint": "wss://ws-feed.exchange.coinbase.com"
+      }
+    },
+    "kraken": {
+      "running_after_restart": false,
+      "fatal_error": null,
+      "markets": [
+        {
+          "symbol": "BTC-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14368.424549102783,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "ETH-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14366.759092092514,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "SOL-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14368.22088098526,
+          "history_status": {
+            "state": "READY",
+            "error": null,
+            "candles": 300
+          }
+        },
+        {
+          "symbol": "XRP-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14368.610446929932,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "ADA-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14366.956042051315,
+          "history_status": {
+            "state": "READY",
+            "error": null
+          }
+        },
+        {
+          "symbol": "DOGE-USD",
+          "fresh": true,
+          "samples": 241,
+          "analysis_span_seconds": 14367.958714008331,
+          "history_status": {
+            "state": "READY",
+            "error": null,
+            "candles": 300
+          }
+        }
+      ],
+      "feed": {
+        "provider": "kraken",
+        "state": "LIVE",
+        "messages": 17516,
+        "valid_quotes": 17420,
+        "invalid_messages": 0,
+        "reconnects": 0,
+        "last_message_ts": 1794862288.6899629,
+        "last_quote_ts": 1794862288.6899629,
+        "latency_ms": 79.51593399047852,
+        "error": null,
+        "subscriptions": [
+          "BTC-USD",
+          "ETH-USD",
+          "SOL-USD",
+          "XRP-USD",
+          "ADA-USD",
+          "DOGE-USD"
+        ],
+        "subscription_errors": {},
+        "endpoint": "wss://ws.kraken.com/v2"
+      }
+    }
+  },
+  "rules_version": "2.1.0-minute-context"
+}

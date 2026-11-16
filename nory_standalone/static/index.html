@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#080808" />
+    <meta
+      name="description"
+      content="NORY 2.0. Investigación autónoma y paper trading con cotizaciones públicas."
+    />
+    <title>NORY 2.0 — Investment Intelligence</title>
+    <link rel="icon" href="/static/assets/ais_dark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#dashboard" aria-label="Nory Dashboard"
+        ><span class="ais-logo"
+          ><img
+            src="/static/assets/ais_dark.svg"
+            alt="Logo AIS para fondo oscuro" /></span
+        ><span>NORY<span class="version">2.0</span></span></a
+      >
+      <div class="nav-caption">INVESTMENT WORKSPACE</div>
+      <nav aria-label="Secciones principales">
+        <button class="nav-item active" data-view="dashboard">
+          <svg viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" /></svg
+          >Dashboard
+        </button>
+        <button class="nav-item" data-view="markets">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 18l6-7 5 4 7-11M3 3v18h18" /></svg
+          >Mercados
+        </button>
+        <button class="nav-item" data-view="operations">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4" /></svg
+          >Operaciones
+        </button>
+        <button class="nav-item" data-view="intelligence">
+          <svg viewBox="0 0 24 24">
+            <path d="m12 2 3 6 7 4-7 4-3 6-3-6-7-4 7-4zM12 7v10M7 12h10" /></svg
+          >Inteligencia y rendimiento
+        </button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="tiny-label">ENTORNO DE INVESTIGACIÓN</span
+        ><strong>Datos reales.<br />Capital ficticio.</strong>
+        <p>
+          Todas las operaciones son simuladas y están sujetas a costes y límites
+          de riesgo.
+        </p>
+        <span class="paper-label">PAPER ONLY</span>
+      </div>
+      <div class="sidebar-foot">
+        <span class="dot"></span> AIS / NORY RESEARCH<span>v2.1.1</span>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div class="workspace-name">
+          NORY WORKSPACE <span>/</span> <span id="breadcrumb">Dashboard</span>
+        </div>
+        <div class="topbar-right">
+          <span id="connection">Conectando con el motor…</span
+          ><time id="clock"></time><span class="avatar">AI<span>S</span></span>
+        </div>
+      </header>
+      <div class="page">
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow">AUTONOMOUS INVESTMENT INTELLIGENCE</div>
+            <h1 id="page-title">Tu capital, con perspectiva.</h1>
+            <p id="page-subtitle">
+              El pulso de tus mercados. Cada decisión, explicada.
+            </p>
+          </div>
+          <span class="badge">SIMULACIÓN · USD</span>
+        </div>
+        <div class="context-bar">
+          <div class="selectors">
+            <label
+              >PROVEEDOR<select
+                id="provider"
+                aria-label="Proveedor de la cartera"
+              >
+                <option value="coinbase">Coinbase Exchange</option>
+                <option value="kraken">Kraken</option>
+              </select></label
+            ><label
+              >ESTRATEGIA<select
+                id="strategy"
+                aria-label="Estrategia de la cartera"
+              ></select
+            ></label>
+          </div>
+          <div class="engine-controls">
+            <button id="start" class="primary">
+              <svg viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M3 1 11 6 3 11Z" fill="currentColor" />
+              </svg>
+              Iniciar Nory</button
+            ><button id="stop" class="secondary">
+              <svg viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M2 2h8v8H2Z" fill="currentColor" />
+              </svg>
+              Detener Nory
+            </button>
+          </div>
+        </div>
+        <div class="status-strip">
+          <div>
+            <span id="engine-dot" class="status-dot"></span
+            ><strong id="engine-status">Esperando al motor</strong
+            ><span class="separator">/</span
+            ><span id="active-markets">Sin datos todavía</span>
+          </div>
+          <span id="control-scope"
+            >Control global · carteras independientes</span
+          >
+        </div>
+        <div id="offline-banner" class="notice hidden" role="status">
+          Se perdió la conexión con el panel. El motor conserva su estado; los
+          controles volverán al reconectar.
+        </div>
+        <div id="error-banner" class="notice hidden" role="alert"></div>
+        <section id="dashboard-view" class="view">
+          <div class="metric-grid">
+            <article class="metric">
+              <div class="metric-label">
+                CAPITAL FICTICIO ACTUAL
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M4 15 15 4M5 4h10v10" />
+                </svg>
+              </div>
+              <div class="metric-value" id="capital">—</div>
+              <div class="metric-foot" id="initial-capital">Inicial: —</div>
+            </article>
+            <article class="metric">
+              <div class="metric-label">RESULTADO NETO <span>±</span></div>
+              <div class="metric-value" id="net-pnl">—</div>
+              <div class="metric-foot" id="return-pct">
+                Después de costes estimados
+              </div>
+            </article>
+            <article class="metric">
+              <div class="metric-label">
+                EFECTIVO DISPONIBLE
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M3 5h14v11H3ZM3 8h14M12 11h3" />
+                </svg>
+              </div>
+              <div class="metric-value" id="cash">—</div>
+              <div class="metric-foot" id="cash-note">
+                Reserva de riesgo activa
+              </div>
+            </article>
+            <article class="metric">
+              <div class="metric-label">
+                POSICIONES ABIERTAS
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M3 3h14v14H3ZM10 3v14M3 10h14" />
+                </svg>
+              </div>
+              <div class="metric-value" id="position-count">—</div>
+              <div class="metric-foot" id="position-value">
+                Valor de liquidación: —
+              </div>
+            </article>
+          </div>
+          <div class="dashboard-grid">
+            <article class="panel equity-panel">
+              <div class="panel-heading">
+                <div>
+                  <div class="eyebrow">EVOLUCIÓN DE LA CARTERA</div>
+                  <h2>El resultado, en contexto.</h2>
+                </div>
+                <span class="chart-period">Historial registrado</span>
+              </div>
+              <div class="chart-legend">
+                <span class="legend-line"></span>Capital ficticio neto<span
+                  class="legend-dash"
+                ></span
+                >Capital inicial
+              </div>
+              <div
+                id="equity-chart"
+                class="chart"
+                aria-label="Evolución registrada del capital"
+              ></div>
+              <div class="chart-footer">
+                <span id="chart-range">Esperando observaciones</span
+                ><span>Incluye costes de liquidación estimados</span>
+              </div>
+            </article>
+            <article class="panel diagnosis-panel">
+              <div class="panel-heading">
+                <div>
+                  <div class="eyebrow">MOTOR DE DECISIONES</div>
+                  <h2>¿Qué está pensando Nory?</h2>
+                </div>
+                <span class="intelligence-mark">N</span>
+              </div>
+              <span class="outline-label" id="diagnosis-label"
+                >ESPERANDO DATOS</span
+              >
+              <p id="diagnosis">
+                Al conectar, aquí verás por qué Nory opera o conserva efectivo.
+              </p>
+              <div class="diagnosis-bottom">
+                <div>
+                  <span>Riesgo de cartera</span
+                  ><strong id="risk-state">—</strong>
+                </div>
+                <div>
+                  <span>Coste por lado</span><strong id="fee-label">—</strong>
+                </div>
+                <div>
+                  <span>Drawdown máximo</span><strong id="drawdown">—</strong>
+                </div>
+              </div>
+              <button class="text-button" data-open="intelligence">
+                Explorar inteligencia <span>↗</span>
+              </button>
+            </article>
+          </div>
+          <div class="dashboard-grid lower">
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <div class="eyebrow">UNIVERSO DE ANÁLISIS</div>
+                  <h2>Mercados en observación</h2>
+                </div>
+                <button class="text-button" data-open="markets">
+                  Ver todos ↗
+                </button>
+              </div>
+              <div class="table-wrap" id="dashboard-markets"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <div class="eyebrow">CONECTIVIDAD</div>
+                  <h2>Fuentes de mercado</h2>
+                </div>
+                <span class="muted small">WebSocket público</span>
+              </div>
+              <div id="feed-cards"></div>
+              <p class="panel-note">
+                Los latidos de conexión y los ciclos del motor no se cuentan
+                como precios nuevos.
+              </p>
+            </article>
+          </div>
+        </section>
+        <section id="markets-view" class="view hidden">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <div class="eyebrow">DATOS DEL PROVEEDOR SELECCIONADO</div>
+                <h2>Tu universo, en tiempo real.</h2>
+              </div>
+              <a id="export-quotes" class="secondary" href="/api/export/quotes"
+                >Exportar cotizaciones ↓</a
+              >
+            </div>
+            <div class="filters">
+              <label class="search-label"
+                ><span>⌕</span
+                ><input
+                  id="market-search"
+                  type="search"
+                  placeholder="Buscar un activo…"
+                  aria-label="Buscar activo" /></label
+              ><label
+                >Mercado<select id="market-type">
+                  <option value="all">Todos · Cripto spot USD</option>
+                  <option value="spot">Cripto spot USD</option>
+                </select></label
+              ><label
+                >Riesgo<select id="risk-filter">
+                  <option value="all">Todos los niveles</option>
+                  <option value="Moderado">Moderado</option>
+                  <option value="Alto">Alto</option>
+                </select></label
+              >
+            </div>
+            <div class="table-wrap" id="full-markets"></div>
+            <p class="panel-note">
+              La variación corresponde a la ventana local observada, indicada en
+              el detalle. La prioridad mide condiciones cumplidas; no es una
+              probabilidad de ganar.
+            </p>
+          </div>
+          <article id="market-detail" class="panel detail-panel">
+            <div class="eyebrow">TRAZABILIDAD DE LA SEÑAL</div>
+            <h2>Selecciona un activo</h2>
+            <p class="muted">
+              Consulta condiciones, costes, indicadores y antigüedad de los
+              datos.
+            </p>
+          </article>
+        </section>
+        <section id="operations-view" class="view hidden">
+          <div class="tab-bar" role="tablist" aria-label="Tipos de operaciones">
+            <button
+              class="tab active"
+              data-operation="positions"
+              role="tab"
+              aria-selected="true"
+            >
+              Posiciones abiertas</button
+            ><button
+              class="tab"
+              data-operation="orders"
+              role="tab"
+              aria-selected="false"
+            >
+              Órdenes pendientes e historial</button
+            ><button
+              class="tab"
+              data-operation="fills"
+              role="tab"
+              aria-selected="false"
+            >
+              Ejecuciones ficticias</button
+            ><button
+              class="tab"
+              data-operation="closed"
+              role="tab"
+              aria-selected="false"
+            >
+              Operaciones cerradas
+            </button>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <div class="eyebrow">REGISTRO DE PAPER TRADING</div>
+                <h2 id="operations-title">Posiciones abiertas</h2>
+              </div>
+              <a id="export-fills" class="secondary" href="/api/export/fills"
+                >Exportar historial ↓</a
+              >
+            </div>
+            <div id="operations-content" class="table-wrap"></div>
+            <p class="panel-note">
+              Una orden pendiente no es una ejecución. Los llenados son
+              hipotéticos y requieren una cotización posterior. Detener Nory
+              conserva las posiciones abiertas.
+            </p>
+          </div>
+        </section>
+        <section id="intelligence-view" class="view hidden">
+          <div class="tab-bar" role="tablist" aria-label="Inteligencia">
+            <button
+              class="tab active"
+              data-intelligence="performance"
+              role="tab"
+              aria-selected="true"
+            >
+              Rendimiento</button
+            ><button
+              class="tab"
+              data-intelligence="strategies"
+              role="tab"
+              aria-selected="false"
+            >
+              Estrategias</button
+            ><button
+              class="tab"
+              data-intelligence="risk"
+              role="tab"
+              aria-selected="false"
+            >
+              Riesgo y parámetros</button
+            ><button
+              class="tab"
+              data-intelligence="research"
+              role="tab"
+              aria-selected="false"
+            >
+              Validación histórica</button
+            ><button
+              class="tab"
+              data-intelligence="diagnostics"
+              role="tab"
+              aria-selected="false"
+            >
+              Diagnóstico
+            </button>
+          </div>
+          <div id="intelligence-content"></div>
+        </section>
+        <footer class="page-footer">
+          <span>NORY 2.0 <span class="footer-slash">/</span> AIS RESEARCH</span
+          ><span
+            >Sin fondos reales · Sin rentabilidad garantizada · Cada decisión
+            deja evidencia</span
+          >
+        </footer>
+      </div>
+    </main>
+    <div id="toast" class="toast hidden" role="status"></div>
+    <dialog id="emergency-dialog">
+      <div class="eyebrow">INTERRUPTOR DE EMERGENCIA</div>
+      <h2>Bloquear todas las carteras</h2>
+      <p>
+        Se detendrá Nory y se cancelarán las órdenes pendientes. Las posiciones
+        ficticias permanecerán abiertas. Este bloqueo queda registrado; para
+        retomar la investigación se necesita una base nueva.
+      </p>
+      <div class="dialog-actions">
+        <button id="cancel-emergency" class="secondary">Volver</button
+        ><button id="confirm-emergency" class="primary">Bloquear Nory</button>
+      </div>
+    </dialog>
+  </body>
+</html>
