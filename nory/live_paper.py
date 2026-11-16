@@ -15,7 +15,10 @@ from statistics import mean, stdev
 from nory.kraken_public import PublicQuote, _parse_timestamp
 
 LIVE_DB=Path(__file__).resolve().parents[1]/"data"/"nory_live_paper.sqlite3"
-ALL_PAIRS=("BTC-USD","ETH-USD","SOL-USD","XRP-USD","ADA-USD")
+COINBASE_LIVE_DB=Path(__file__).resolve().parents[1]/"data"/"nory_coinbase_live_paper.sqlite3"
+# Provider-verified whitelist, never mix two venues in one live account.
+from nory.coinbase_public import PAIRS as COINBASE_PAIRS, COINBASE_PROVIDER
+ALL_PAIRS=tuple(dict.fromkeys(("BTC-USD","ETH-USD","SOL-USD","XRP-USD","ADA-USD")+COINBASE_PAIRS))
 
 
 @dataclass(frozen=True)
@@ -46,7 +49,7 @@ class LivePolicy:
         for name,val in asdict(self).items():
             if isinstance(val,bool) or not isinstance(val,(int,float)) or not math.isfinite(val):
                 raise ValueError("Invalid live policy: "+name)
-        if self.initial_cash<=0 or not 1<=self.max_positions<=5 or not 20<=self.min_history<=150:
+        if self.initial_cash<=0 or not 1<=self.max_positions<=10 or not 20<=self.min_history<=150:
             raise ValueError("Invalid capital, positions or history")
         if not 0<self.max_asset_weight<=self.max_exposure<=.6:
             raise ValueError("Invalid allocation constraints")
@@ -207,8 +210,11 @@ def apply_real_quotes(
     db_path=LIVE_DB,
     policy:LivePolicy|None=None,
     now:datetime|None=None,
+    market_provider: str="KRAKEN_PUBLIC_WS_V2",
 ):
     cfg=policy or LivePolicy()
+    if market_provider not in ("KRAKEN_PUBLIC_WS_V2",COINBASE_PROVIDER):
+        raise ValueError("Unsupported market data source")
     now=now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         raise ValueError("Local clock must be timezone-aware")
@@ -219,8 +225,8 @@ def apply_real_quotes(
     valid={}
     for symbol,q in quotes.items():
         if symbol not in ALL_PAIRS or not isinstance(q,PublicQuote) or q.symbol!=symbol:
-            raise ValueError("Only Kraken public USD spot quote objects allowed")
-        if q.provider!="KRAKEN_PUBLIC_WS_V2":
+            raise ValueError("Only validated USD spot quotes allowed")
+        if q.provider!=market_provider:
             raise ValueError("Unverified quote provider")
         if (not all(math.isfinite(v) for v in (q.bid,q.ask,q.bid_qty,q.ask_qty))
             or q.bid<=0 or q.ask<=q.bid or q.bid_qty<=0 or q.ask_qty<=0
@@ -421,7 +427,7 @@ def apply_real_quotes(
                    (now.isoformat(),cash,eq,dd*100,exposure/eq*100 if eq>0 else 0.,len(positions)))
         db.commit()
         return {"status":"HALTED" if halt else "PROCESSED",
-                "source":"KRAKEN_REAL_BID_ASK_PAPER_ONLY",
+                "source":market_provider+"_PAPER_ONLY",
                 "quotes_processed":sorted(fresh),"events":events,
                 "cash":round(cash,2),"equity":round(eq,2),"exposure_pct":round(exposure/eq*100,2),
                 "warning":"Bid/ask real, FILLS FICTICIOS, profundidad y ejecución no garantizadas"}
