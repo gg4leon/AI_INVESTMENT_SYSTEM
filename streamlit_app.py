@@ -1,6 +1,9 @@
 """AIS Investment Terminal v0.6 — interfaz local, sin ejecucion financiera real."""
 from __future__ import annotations
 
+from pathlib import Path
+import base64
+
 import json
 
 import pandas as pd
@@ -8,13 +11,17 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from app.service import MARKETS, PERIODS, run_analysis
+from app.markets import CATALOG, CATEGORIES, MARKET_BY_SYMBOL, PAPER_SYMBOLS
+from app.news import market_news, media_news
+from automation.paper import get_accounts, get_events, is_paused, set_paused
+from automation.worker import cycle as run_paper_cycle
 from app.storage import get_run, list_runs, save_run
 from backtesting.engine import BacktestConfig
 
 
 st.set_page_config(
-    page_title="AIS · Investment Terminal",
-    page_icon="📈",
+    page_title="AIS · Investment Terminal v0.6.1",
+    page_icon="🔺",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -22,25 +29,30 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-[data-testid="stAppViewContainer"] {background: #08111e;}
-[data-testid="stSidebar"] {background: #101b2b; border-right: 1px solid #203047;}
+[data-testid="stAppViewContainer"] {background: #080808;}
+[data-testid="stSidebar"] {background: #101010; border-right: 1px solid #303030;}
 .block-container {padding-top: 1.8rem; max-width: 1500px;}
 h1, h2, h3 {letter-spacing: -.035em;}
 h1 {font-size: clamp(2rem, 4vw, 3.1rem) !important; font-weight: 780 !important;}
 [data-testid="stMetric"] {
-    background: linear-gradient(145deg, #132237 0%, #0d1828 100%);
-    border: 1px solid #25384b; border-radius: 13px;
+    background: linear-gradient(145deg, #1a1a1a 0%, #111111 100%);
+    border: 1px solid #303030; border-radius: 13px;
     padding: 14px 16px;
 }
-[data-testid="stMetricLabel"] {color: #93a9bc;}
+[data-testid="stMetricLabel"] {color: #cccccc;}
 [data-testid="stMetricValue"] {font-weight: 700;}
 div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {
-    background: #45d5b6; color: #071420; border: none; font-weight: 750;
+    background: #ff0d00; color: #ffffff; border: none; font-weight: 750;
 }
-.ais-eyebrow {color: #45d5b6; font-size: .75rem; letter-spacing: .18em;
+.ais-eyebrow {color: #ff0d00; font-size: .75rem; letter-spacing: .18em;
     text-transform: uppercase; font-weight: 700; margin-bottom: .35rem;}
-.ais-note {background: #101e30; border-left: 3px solid #45d5b6;
-    border-radius: 4px; padding: .8rem 1rem; color: #b8c7d8; font-size: .88rem;}
+.ais-note {background: #101e30; border-left: 3px solid #ff0d00;
+    border-radius: 4px; padding: .8rem 1rem; color: #ededed; font-size: .88rem;}
+.ais-brand {background:#ffffff; padding:6px 12px; border-radius:12px; margin-bottom:14px; border:1px solid #363636;}
+.ais-brand img {width:100%; display:block; max-height:130px; object-fit:contain;}
+.stTabs [data-baseweb="tab-list"] {gap:8px;}
+.stTabs [data-baseweb="tab"] {border-radius:6px; background:#171717; border:1px solid #2d2d2d;}
+.stTabs [aria-selected="true"] {border-color:#ff0d00 !important;}
 </style>
     """,
     unsafe_allow_html=True,
@@ -50,16 +62,16 @@ div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="pri
 def _figure(title: str, height: int = 390) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
-        title=dict(text=title, font=dict(size=17, color="#e7eef7")),
-        paper_bgcolor="#0c1625",
-        plot_bgcolor="#0c1625",
-        font=dict(color="#b9c8d9"),
+        title=dict(text=title, font=dict(size=17, color="#ffffff")),
+        paper_bgcolor="#101010",
+        plot_bgcolor="#101010",
+        font=dict(color="#eeeeee"),
         margin=dict(l=16, r=16, t=55, b=15),
         height=height,
         hovermode="x unified",
         legend=dict(orientation="h", y=1.08, x=0),
-        xaxis=dict(showgrid=True, gridcolor="#203044", zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor="#203044", zeroline=False),
+        xaxis=dict(showgrid=True, gridcolor="#292929", zeroline=False),
+        yaxis=dict(showgrid=True, gridcolor="#292929", zeroline=False),
     )
     return fig
 
@@ -71,7 +83,7 @@ def _equity_plot(snapshot: dict) -> go.Figure:
         return fig
     fig.add_trace(go.Scatter(
         x=frame["timestamp"], y=frame["equity"], name="AIS · capital simulado",
-        mode="lines", line=dict(color="#45d5b6", width=2.7),
+        mode="lines", line=dict(color="#ff0d00", width=2.7),
     ))
     initial = float(snapshot["backtest"]["initial_cash"])
     first_close = float(frame["close"].iloc[0])
@@ -79,13 +91,13 @@ def _equity_plot(snapshot: dict) -> go.Figure:
         comparison = frame["close"] / first_close * initial
         fig.add_trace(go.Scatter(
             x=frame["timestamp"], y=comparison, name="Comprar y mantener · bruto",
-            mode="lines", line=dict(color="#96a8bd", width=1.9, dash="dash"),
+            mode="lines", line=dict(color="#ffffff", width=1.9, dash="dash"),
         ))
     entries = frame[frame["action"] == "ENTER_LONG"]
     exits = frame[frame["action"] == "EXIT_LONG"]
     for name, points, color, symbol in (
-        ("Entrada simulada", entries, "#6ce6bb", "triangle-up"),
-        ("Salida simulada", exits, "#fb9d75", "triangle-down"),
+        ("Entrada simulada", entries, "#ff0d00", "triangle-up"),
+        ("Salida simulada", exits, "#f3f3f3", "triangle-down"),
     ):
         if not points.empty:
             fig.add_trace(go.Scatter(
@@ -106,11 +118,11 @@ def _market_plot(snapshot: dict) -> go.Figure:
         x=frame["timestamp"], open=frame["Open"],
         high=frame["High"], low=frame["Low"], close=frame["Close"],
         name="OHLC",
-        increasing_line_color="#45d5b6", decreasing_line_color="#f18b8b",
+        increasing_line_color="#ff0d00", decreasing_line_color="#f2f2f2",
     ))
     for col, name, color in (
-        ("SMA_10", "SMA 10", "#e3c66e"),
-        ("SMA_30", "SMA 30", "#77a6ee"),
+        ("SMA_10", "SMA 10", "#ff0d00"),
+        ("SMA_30", "SMA 30", "#ffffff"),
     ):
         if col in frame:
             fig.add_trace(go.Scatter(
@@ -127,10 +139,10 @@ def _rsi_plot(snapshot: dict) -> go.Figure:
     if "RSI_14" in frame:
         fig.add_trace(go.Scatter(
             x=frame["timestamp"], y=frame["RSI_14"], name="RSI 14",
-            mode="lines", line=dict(color="#d8bafa", width=2),
+            mode="lines", line=dict(color="#ff4c45", width=2),
         ))
-        fig.add_hline(y=70, line_dash="dash", line_color="#f18b8b")
-        fig.add_hline(y=30, line_dash="dash", line_color="#45d5b6")
+        fig.add_hline(y=70, line_dash="dash", line_color="#f2f2f2")
+        fig.add_hline(y=30, line_dash="dash", line_color="#ff0d00")
         fig.update_yaxes(range=[0, 100])
     return fig
 
@@ -141,15 +153,15 @@ def _macd_plot(snapshot: dict) -> go.Figure:
     if "MACD" in frame:
         fig.add_trace(go.Scatter(
             x=frame["timestamp"], y=frame["MACD"], name="MACD",
-            line=dict(color="#45d5b6", width=2),
+            line=dict(color="#ff0d00", width=2),
         ))
         fig.add_trace(go.Scatter(
             x=frame["timestamp"], y=frame["MACD_SIGNAL"], name="Señal",
-            line=dict(color="#d1a1f1", width=2),
+            line=dict(color="#f1f1f1", width=2),
         ))
         fig.add_trace(go.Bar(
             x=frame["timestamp"], y=frame["MACD_HIST"], name="Histograma",
-            marker_color="#7b94ac", opacity=.45,
+            marker_color="#4b4b4b", opacity=.45,
         ))
     return fig
 
@@ -159,12 +171,20 @@ def _number(value: float | None, suffix: str = "", digits: int = 2) -> str:
 
 
 with st.sidebar:
+    logo_path = Path(__file__).resolve().parent / 'assets' / 'ais_original.svg'
+    logo_b64 = base64.b64encode(logo_path.read_bytes()).decode('ascii')
+    st.markdown(
+        '<div class="ais-brand"><img alt="Logo original AIS" src="data:image/svg+xml;base64,'
+        + logo_b64 + '"></div>', unsafe_allow_html=True,
+    )
     st.markdown('<div class="ais-eyebrow">AIS / CONTROL CENTER</div>', unsafe_allow_html=True)
     st.subheader("Configurar simulación")
     st.caption("Todos los importes son ficticios. Ninguna opción mueve dinero.")
     with st.form("new_run_form"):
+        category = st.selectbox("Tipo de mercado", options=list(CATEGORIES))
+        matching = [m.symbol for m in CATALOG if m.category == category]
         symbol = st.selectbox(
-            "Mercado", options=list(MARKETS),
+            "Activo para análisis", options=matching,
             format_func=lambda x: f"{x} · {MARKETS[x]}",
         )
         data_label = st.radio(
@@ -191,7 +211,7 @@ with st.sidebar:
         )
 
     st.divider()
-    st.caption("AIS v0.6 · Investigación cuantitativa")
+    st.caption("AIS v0.6.1 · Investigación cuantitativa")
     st.caption("🔒 Sin bróker · Sin órdenes · Base de datos local")
 
 if execute:
