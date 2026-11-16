@@ -26,11 +26,13 @@ from nory.micro_lab import (
 )
 from nory.micro_worker import run_steps as micro_run_steps
 from nory.auto_runner import MicroAutoRunner
+from nory.live_runner import LivePaperRunner
+from nory.live_paper import dashboard as live_paper_dashboard, ALL_PAIRS as KRAKEN_LIVE_PAIRS
 from nory.micro_feed import SCENARIOS as MICRO_SCENARIOS
 
 
 st.set_page_config(
-    page_title="AIS · Nory v0.8 Investment Terminal",
+    page_title="AIS · Nory v0.9 Investment Terminal",
     page_icon="🔺",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -67,6 +69,12 @@ div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="pri
     """,
     unsafe_allow_html=True,
 )
+
+
+@st.cache_resource(show_spinner=False)
+def _get_live_kraken_runner() -> LivePaperRunner:
+    # Public quotes only, no socket open until user explicitly presses START.
+    return LivePaperRunner()
 
 
 @st.cache_resource(show_spinner=False)
@@ -264,6 +272,132 @@ st.caption(
     "No es una cuenta financiera ni una recomendación de inversión."
 )
 
+with st.expander("● NORY LIVE LAB v0.9 · cotizaciones REALES, cartera ficticia", expanded=True):
+    st.markdown(
+        "**Proveedor: Kraken WebSocket público · criptomonedas USD spot.** "
+        "Los precios bid/ask y sus marcas temporales vienen de mercado real. "
+        "**Todas las compras, ventas y balances son ficticios.**"
+    )
+    st.warning(
+        "Los cambios de precio no garantizan ganancias. Nory no tiene acceso a tu cuenta "
+        "ni puede enviar órdenes. Las acciones SPY/AAPL/NVDA NO disponen de "
+        "un feed completo gratuito por segundo en este módulo; continúan en investigación histórica."
+    )
+    live_runner = _get_live_kraken_runner()
+    live_status = live_runner.status()
+    live_account = live_paper_dashboard()
+    live_locked = bool(live_account["state"]["last_cycle_at"])
+    if live_status["running"]:
+        live_symbols = live_status["symbols"]
+        st.caption("Suscripción activa: " + ", ".join(live_symbols))
+    else:
+        live_symbols = st.multiselect(
+            "Seleccionar criptomonedas reales de Kraken (BTC obligatorio)",
+            options=list(KRAKEN_LIVE_PAIRS),
+            default=["BTC-USD","ETH-USD","SOL-USD"],
+            max_selections=5,
+            key="kraken_public_symbols",
+        )
+    ctrl1,ctrl2=st.columns([1,1])
+    with ctrl1:
+        if st.button(
+            "▶ Conectar precios reales · SOLO PAPER",
+            key="kraken_start",type="primary",
+            disabled=(live_status["running"] or "BTC-USD" not in live_symbols
+                      or _get_micro_auto_runner().status()["running"]),
+            use_container_width=True,
+        ):
+            try:
+                live_runner.start(tuple(live_symbols))
+                st.rerun()
+            except (ValueError,OSError,RuntimeError) as exc:
+                st.error(f"No se pudo conectar: {exc}")
+    if _get_micro_auto_runner().status()["running"]:
+        st.caption("Detén primero la simulación automática sintética para activar datos reales.")
+    with ctrl2:
+        if st.button(
+            "■ Desconectar y detener",
+            key="kraken_stop",disabled=not live_status["running"],
+            use_container_width=True,
+        ):
+            live_runner.stop()
+            st.rerun()
+    st.caption(
+        "Conecta directamente a Kraken por WebSocket y observa muestras nuevas "
+        "aproximadamente cada segundo. Los mensajes pueden llegar más rápido, "
+        "más lento o detenerse por inactividad. Si el feed falla o envejece, "
+        "Nory NO inventa cotizaciones ni ejecuta compras ficticias."
+    )
+    @st.fragment(run_every="2s")
+    def _live_kraken_panel():
+        status=live_runner.status()
+        account=live_paper_dashboard()
+        state=account["state"]
+        feed=status.get("feed")
+        if status["running"]:
+            st.success(
+                f'● CONECTADO / ESCUCHANDO · estado: {status["status"]} · '
+                f'{status["cycles"]} ciclos con datos nuevos'
+            )
+        else:
+            st.info(f'● DETENIDO · {status["status"]}')
+        if status.get("error"):
+            st.error("Advertencia del servicio: "+status["error"])
+        if feed:
+            st.caption(
+                f'Kraken: {feed["state"]} · actualizaciones válidas '
+                f'{feed["messages_valid"]} · rechazadas {feed["messages_rejected"]} '
+                f'· reconexiones {feed["reconnect_attempts"]}'
+            )
+            if feed["error"]:
+                st.error("WebSocket: "+feed["error"])
+            quotes=live_runner._client.store.snapshot(max_age_seconds=10) if status["running"] and live_runner._client else {}
+            if quotes:
+                df=pd.DataFrame([
+                    {
+                        "Activo": q.symbol,
+                        "Bid real":q.bid, "Ask real":q.ask,
+                        "Spread (bps)":round(q.spread_bps,2),
+                        "Hora Kraken UTC":q.exchange_time,
+                        "Profundidad bid":q.bid_qty,"Profundidad ask":q.ask_qty,
+                    }
+                    for q in quotes.values()
+                ])
+                st.dataframe(df,hide_index=True,use_container_width=True)
+            else:
+                st.caption("Esperando actualizaciones reales recientes; ninguna orden se simula sin datos.")
+        cols=st.columns(4)
+        cols[0].metric("Capital PAPER USD",f'$ {state["equity"]:,.2f}')
+        cols[1].metric("Efectivo PAPER USD",f'$ {state["cash"]:,.2f}')
+        cols[2].metric("Posiciones",len(account["positions"]))
+        cols[3].metric("Estado", "RIESGO BLOQUEADO" if state["halted"] else "PAUSADO" if state["paused"] else "PAPER")
+        if account["equity"]:
+            df=pd.DataFrame(account["equity"])
+            fig=_figure("Nory · equity en USD ficticios / precios de mercado reales",300)
+            fig.add_trace(go.Scatter(
+                x=df["observed_at"],y=df["equity"],mode="lines",
+                line=dict(color="#ff0d00",width=2.4),name="Capital PAPER",
+            ))
+            st.plotly_chart(fig,use_container_width=True)
+        if account["positions"]:
+            st.markdown("**Posiciones ficticias, valoradas usando bids reales recibidos**")
+            st.dataframe(pd.DataFrame(account["positions"]),hide_index=True,use_container_width=True)
+        if account["pending"]:
+            st.markdown("**Órdenes hipotéticas para la SIGUIENTE cotización recibida**")
+            st.dataframe(pd.DataFrame(account["pending"]),hide_index=True,use_container_width=True)
+        if account["fills"]:
+            st.markdown("**Operaciones hipotéticas registradas (bid/ask y comisiones)**")
+            st.dataframe(pd.DataFrame(account["fills"]),hide_index=True,use_container_width=True)
+        if account["decisions"]:
+            with st.expander("🧠 Nory: por qué compró, esperó o bloqueó"):
+                st.dataframe(pd.DataFrame(account["decisions"]),hide_index=True,use_container_width=True)
+        st.caption(
+            "Costes simulados conservadores: 80 bps por lado, slippage 5 bps por lado, "
+            "spread real observado y límite de participación de 10 % de la profundidad visible. "
+            "Las órdenes NO se envían y las cotizaciones NO garantizan llenado."
+        )
+    _live_kraken_panel()
+
 with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones pequeñas", expanded=True):
     st.markdown("**Laboratorio de estrategia multiactivo a intervalos de ~1 segundo.**")
     st.warning(
@@ -333,7 +467,9 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
             if st.button(
                 "▶ Iniciar automático (1 s)", key="micro_auto_start",
                 type="primary", use_container_width=True,
-                disabled=micro_state["halted"] or not micro_symbols or "SPY" not in micro_symbols,
+                disabled=(micro_state["halted"] or not micro_symbols
+                          or "SPY" not in micro_symbols
+                          or _get_live_kraken_runner().status()["running"]),
             ):
                 try:
                     auto_runner.start(

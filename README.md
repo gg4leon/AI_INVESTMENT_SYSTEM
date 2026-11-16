@@ -1,4 +1,141 @@
-# AIS v0.8.1 — Investment Terminal con Nory MicroLab
+# AIS v0.9 — Investment Terminal · Nory con Kraken en tiempo real
+
+## Nory v0.9 — DATOS REALES por Kraken, operaciones 100% ficticias
+
+**Ya no dependemos de datos fabricados para toda la investigación:** la nueva
+sección **«NORY LIVE LAB v0.9»** recibe cotizaciones de compra y venta reales
+(Bid/Ask) del WebSocket público de Kraken. No necesitas crear cuenta, introducir
+contraseñas, contratar una suscripción ni entregar llaves API para leer estas
+cotizaciones. **Nory nunca envía órdenes, depósitos ni retiros.**
+
+### 1. Actualiza AIS en VS Code (PowerShell)
+
+Antes de actualizar, cierra AIS y cualquier worker en otra terminal. Respáldate
+los archivos locales SQLite si te interesa conservar experimentos.
+
+```powershell
+git status
+git pull origin main
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python -m streamlit run streamlit_app.py
+```
+
+Revisa cambios sin guardar en `git status` antes de descargar. **No hagas
+`git reset --hard` ni borres tu carpeta `data`.**
+
+Abre `http://127.0.0.1:8501`. Expande **«● NORY LIVE LAB v0.9»**, selecciona
+`BTC-USD` obligatoriamente como referencia más otros símbolos, y pulsa
+**«▶ Conectar precios reales · SOLO PAPER»**. El panel muestra el estado de
+la conexión, precios reales bid/ask y sus fechas, recepción de mensajes,
+spreads, efectivo ficticio, posiciones, órdenes pendientes y operaciones
+hipotéticas. **«■ Desconectar y detener»** pausa el motor y cierra la conexión.
+
+Puedes verificar exclusivamente la conexión pública desde otra terminal,
+con la app desconectada:
+
+```powershell
+python -m nory.kraken_probe --seconds 20 --symbols BTC-USD ETH-USD
+```
+
+Si hay conexión WebSocket y actualizaciones reales, imprimirá bid/ask y
+`PASS`. Si no, mostrará que faltan cotizaciones o un error. **Las pruebas
+unitarias sin Internet no prueban la conexión a Kraken desde tu computadora.**
+
+### 2. Qué mercados son reales ahora
+
+Este módulo gratuito accede al canal público `ticker` de Kraken WebSocket
+v2 `wss://ws.kraken.com/v2`: **BTC/USD, ETH/USD, SOL/USD, XRP/USD y
+ADA/USD**, si la disponibilidad de esos instrumentos permite suscribirse.
+Son **criptomonedas**, **no acciones de empresas**. El catálogo existente de
+más de 50 símbolos (SPY, AAPL, NVDA, acciones México, índices, divisas,
+materias primas y otros) continúa operativo en el **analizador histórico
+Yahoo**, pero no se presenta falsamente como un feed de operaciones
+bursátiles de segundo a segundo.
+
+Para **acciones de EE. UU.**, una posible futura opción es **Alpaca Basic**:
+datos IEX en tiempo real (no todo el mercado), hasta 30 símbolos de stream,
+con claves de API y requisitos de cuenta; no habilitamos ese feed porque
+no es completamente abierto sin registro. El plan no permite considerar
+sus datos IEX equivalentes a SIP completo de todas las bolsas.
+
+### 3. Diseño de la cartera prospectiva
+
+- **1 solo capital ficticio de 10,000 USD**, separado de las sesiones sintéticas.
+- No abre ningún WebSocket automáticamente: requiere pulsar el botón.
+- Escucha datos reales con un **único stream** y procesa un lote cada ~1 s
+  si hay **nuevas cotizaciones verificables**. Los mensajes pueden llegar
+  más o menos rápido; no se inventan ticks ni se garantiza una operación
+  cada segundo. Es trabajo **paper**, no alta frecuencia real.
+- Usa **solo actualizaciones**, no snapshots iniciales como señales; cada
+  símbolo debe tener marca de tiempo posterior a su última observación.
+  Rechaza timestamps no cronológicos, bids cruzados, cotizaciones viejas,
+  spread excesivo, tamaños nulos y fuentes no reconocidas.
+- Las operaciones ficticias usan el **Ask real** para compra y el
+  **Bid real** para venta, más **5 bps de deslizamiento supuesto por lado**
+  y **80 bps de comisión supuesto por lado**. Esta tarifa conservadora es
+  ilustrativa basada en tarifas taker iniciales publicadas por Kraken Pro,
+  no un presupuesto personalizado ni una garantía del coste real.
+- Una compra se decide tras observar un precio y se deja pendiente hasta
+  una **cotización posterior**. Se limita al **10% del tamaño visible del
+  mejor nivel Ask** de esa cotización. Las ventas pueden ser parciales,
+  limitadas a la profundidad Bid visible; el llenado **NO se garantiza**.
+- Exposición máxima **30%**, asignación hasta **8.5% por activo**,
+  máximo **4 posiciones**, objetivo de ganancia **45 bps netos**
+  después de costes, stop indicativo **300 bps de pérdida neta**,
+  bloqueo de pérdidas de cartera **6%**. Los stops NO garantizan venta
+  al precio esperado. Una operación de menos de 2% bruto puede perder
+  dinero con costes elevados.
+- Exige al menos **45 cotizaciones previas por instrumento**, rebote
+  tras relativa debilidad, filtro de caída anormal, rango/volatilidad,
+  spread y estrés general del benchmark BTC. Si el movimiento bajista
+  pudiera deberse a un evento desconocido, **NO inventa su causa**:
+  puede bloquear compras hasta que se recupere el contexto técnico.
+- Máximo **12 operaciones ficticias por minuto** y tiempo de espera
+  entre movimientos del mismo activo. Menos operaciones y mayores
+  costes reales pueden eliminar ganancias que aparecen en MicroLab.
+- Al perder conexión, quedarse sin datos válidos o alcanzar un
+  límite de riesgo, el motor detiene/pone en pausa la simulación.
+  No hay conexión con cuenta de dinero real y **no intenta liquidar
+  ni cerrar activos reales**.
+- Historial persistente exclusivo en `data/nory_live_paper.sqlite3`.
+  Guarda precios recibidos, decisiones, operaciones hipotéticas, equity,
+  costes y explicaciones. Está excluido de GitHub por `.gitignore`.
+
+### 4. Lo que todavía NO hemos demostrado
+
+- Que la estrategia sea rentable con datos reales: es posible que
+  **Nory casi nunca compre** porque los spreads, tarifas y filtros
+  impiden operaciones cuya rentabilidad esperada no supera los costes.
+- Que un precio se pueda ejecutar: una cotización observada puede
+  cambiar o desaparecer antes de una orden. No son fills reales.
+- Que el origen de una caída esté verificado: Kraken ofrece datos
+  de mercado, **no la explicación causal de un movimiento**. Las
+  noticias RSS existentes son información de contexto; no activan
+  automáticamente decisiones ni convierten rumores en hechos.
+- Datos de acciones por segundo de todas las bolsas, profundidad completa
+  de libro, licencias de distribución, latencia propia de un bróker,
+  exactitud de precios llenados, slippage histórico comprobado ni
+  robustez de resultados fuera de muestra.
+
+Este sistema ofrece investigación **prospectiva** con cotizaciones
+auténticas, pero no garantiza que una estrategia resulte viable. Nory
+puede perder dinero FICTICIO y esa pérdida es información útil para
+mejorarlo. Para cualquier inversión real futura se requerirían
+elegibilidad legal, intermediario autorizado, validaciones y controles
+adicionales; AIS v0.9 deliberadamente no integra tales acciones.
+
+Fuentes de referencia técnica:
+- https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker
+- https://www.kraken.com/pro/fees
+- https://docs.alpaca.markets/us/docs/about-market-data-api
+
+Nuevos módulos:
+`nory/kraken_public.py`, `nory/live_paper.py`,
+`nory/live_runner.py`, `nory/kraken_probe.py` y pruebas offline.
+
+---
+
 
 Plataforma educativa de investigación, gráficos, noticias y operaciones **100% simuladas**. **No conecta a brókeres, no ejecuta compras/ventas reales y no requiere depositar dinero.** El logotipo de AIS conserva el diseño original aportado por su creador, vectorizado para su uso en la interfaz.
 
