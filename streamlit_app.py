@@ -27,7 +27,15 @@ from nory.micro_lab import (
 from nory.micro_worker import run_steps as micro_run_steps
 from nory.auto_runner import MicroAutoRunner
 from nory.live_runner import LivePaperRunner
-from nory.live_paper import dashboard as live_paper_dashboard, ALL_PAIRS as KRAKEN_LIVE_PAIRS
+from nory.live_paper import (
+    dashboard as live_paper_dashboard, LIVE_DB, COINBASE_LIVE_DB, LivePolicy,
+)
+from nory.kraken_public import REVERSE_PAIRS as KRAKEN_REAL_PAIRS
+from nory.coinbase_public import (
+    CoinbasePublicClient, COINBASE_PROVIDER, PAIRS as COINBASE_REAL_PAIRS,
+)
+from nory.performance import summarize_live, diagnosis
+from app.performance_ui import render_performance
 from nory.micro_feed import SCENARIOS as MICRO_SCENARIOS
 
 
@@ -75,6 +83,23 @@ div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="pri
 def _get_live_kraken_runner() -> LivePaperRunner:
     # Public quotes only, no socket open until user explicitly presses START.
     return LivePaperRunner()
+
+
+@st.cache_resource(show_spinner=False)
+def _get_live_coinbase_runner() -> LivePaperRunner:
+    # Independent fictitious account; never mix Coinbase and Kraken quotes.
+    return LivePaperRunner(
+        db_path=COINBASE_LIVE_DB,
+        client_factory=CoinbasePublicClient,
+        allowed_symbols=COINBASE_REAL_PAIRS,
+        market_provider=COINBASE_PROVIDER,
+        interval_seconds=0.5,
+        policy=LivePolicy(
+            fee_bps_each_side=60.0, max_positions=8,
+            max_exposure=0.40, max_asset_weight=0.065,
+            max_orders_per_60_seconds=24,
+        ),
+    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -272,131 +297,176 @@ st.caption(
     "No es una cuenta financiera ni una recomendación de inversión."
 )
 
-with st.expander("● NORY LIVE LAB v0.9 · cotizaciones REALES, cartera ficticia", expanded=True):
+with st.expander("● NORY LIVE LAB v1.0 · Mercado auténtico / operaciones ficticias", expanded=True):
     st.markdown(
-        "**Proveedor: Kraken WebSocket público · criptomonedas USD spot.** "
-        "Los precios bid/ask y sus marcas temporales vienen de mercado real. "
-        "**Todas las compras, ventas y balances son ficticios.**"
+        "**Nory en tiempo real** recibe cotizaciones bid/ask públicas de dos exchanges. "
+        "El capital y las órdenes son enteramente ficticios."
     )
-    st.warning(
-        "Los cambios de precio no garantizan ganancias. Nory no tiene acceso a tu cuenta "
-        "ni puede enviar órdenes. Las acciones SPY/AAPL/NVDA NO disponen de "
-        "un feed completo gratuito por segundo en este módulo; continúan en investigación histórica."
+    provider_label = st.radio(
+        "Proveedor de cotizaciones auténticas",
+        ["Coinbase Exchange · hasta 15 criptomonedas",
+         "Kraken · hasta 5 criptomonedas"],
+        horizontal=True,key="ais_live_provider",
     )
-    live_runner = _get_live_kraken_runner()
-    live_status = live_runner.status()
-    live_account = live_paper_dashboard()
-    live_locked = bool(live_account["state"]["last_cycle_at"])
+    is_coinbase=provider_label.startswith("Coinbase")
+    venue="Coinbase Exchange" if is_coinbase else "Kraken"
+    live_runner=_get_live_coinbase_runner() if is_coinbase else _get_live_kraken_runner()
+    other_runner=_get_live_kraken_runner() if is_coinbase else _get_live_coinbase_runner()
+    paper_db=COINBASE_LIVE_DB if is_coinbase else LIVE_DB
+    available=list(COINBASE_REAL_PAIRS if is_coinbase else KRAKEN_REAL_PAIRS)
+    live_status=live_runner.status()
+    other_status=other_runner.status()
+    account=live_paper_dashboard(db_path=paper_db)
+    state=account["state"]
+    st.caption(
+        f"{venue} · datos reales por WebSocket público · sin clave API · "
+        f"Cuenta paper independiente · coste taker supuesto por lado: "
+        f'{live_status["assumed_fee_bps_each_side"]:.0f} bps'
+    )
+    if other_status["running"]:
+        st.warning("El otro proveedor está activo. Deténlo antes de cambiar de mercado.")
     if live_status["running"]:
-        live_symbols = live_status["symbols"]
-        st.caption("Suscripción activa: " + ", ".join(live_symbols))
+        chosen_symbols=live_status["symbols"]
+        st.write("**Activos en seguimiento:** " + ", ".join(chosen_symbols))
     else:
-        live_symbols = st.multiselect(
-            "Seleccionar criptomonedas reales de Kraken (BTC obligatorio)",
-            options=list(KRAKEN_LIVE_PAIRS),
-            default=["BTC-USD","ETH-USD","SOL-USD"],
-            max_selections=5,
-            key="kraken_public_symbols",
+        chosen_symbols=st.multiselect(
+            "Selecciona activos de precio real (BTC es referencia obligatoria)",
+            options=available,
+            default=["BTC-USD","ETH-USD","SOL-USD"] if is_coinbase
+                else ["BTC-USD","ETH-USD"],
+            max_selections=len(available),
+            key="coinbase_symbols" if is_coinbase else "kraken_symbols_v10",
         )
-    ctrl1,ctrl2=st.columns([1,1])
-    with ctrl1:
+    a1,a2=st.columns(2)
+    with a1:
         if st.button(
-            "▶ Conectar precios reales · SOLO PAPER",
-            key="kraken_start",type="primary",
-            disabled=(live_status["running"] or "BTC-USD" not in live_symbols
-                      or _get_micro_auto_runner().status()["running"]),
+            "▶ Conectar y simular con precios reales",type="primary",
+            key="ais_live_start",
+            disabled=(live_status["running"] or other_status["running"]
+                      or _get_micro_auto_runner().status()["running"]
+                      or "BTC-USD" not in chosen_symbols or bool(state["halted"])),
             use_container_width=True,
         ):
             try:
-                live_runner.start(tuple(live_symbols))
+                live_runner.start(tuple(chosen_symbols))
                 st.rerun()
-            except (ValueError,OSError,RuntimeError) as exc:
-                st.error(f"No se pudo conectar: {exc}")
-    if _get_micro_auto_runner().status()["running"]:
-        st.caption("Detén primero la simulación automática sintética para activar datos reales.")
-    with ctrl2:
+            except (ValueError,RuntimeError,OSError) as exc:
+                st.error(f"Error de conexión: {exc}")
+    with a2:
         if st.button(
-            "■ Desconectar y detener",
-            key="kraken_stop",disabled=not live_status["running"],
-            use_container_width=True,
+            "■ Detener datos y simulación",key="ais_live_stop",
+            disabled=not live_status["running"],use_container_width=True,
         ):
             live_runner.stop()
             st.rerun()
+    if state["halted"]:
+        st.error(
+            "Interruptor de pérdidas activo en ESTA cartera paper: "
+            "Nory no puede reiniciar nuevas compras automáticamente. "
+            "Conserva el historial y revisa la sesión."
+        )
     st.caption(
-        "Conecta directamente a Kraken por WebSocket y observa muestras nuevas "
-        "aproximadamente cada segundo. Los mensajes pueden llegar más rápido, "
-        "más lento o detenerse por inactividad. Si el feed falla o envejece, "
-        "Nory NO inventa cotizaciones ni ejecuta compras ficticias."
+        "Si el mercado no cambia, Nory espera; NO fabrica precios ni fuerza compras. "
+        "Una estrategia con costes altos puede tener cero operaciones legítimas."
     )
+
     @st.fragment(run_every="2s")
-    def _live_kraken_panel():
+    def _render_live_venue():
         status=live_runner.status()
-        account=live_paper_dashboard()
-        state=account["state"]
+        book=live_paper_dashboard(db_path=paper_db)
+        held=book["state"]
         feed=status.get("feed")
+        header=st.columns(4)
+        header[0].metric("Capital ficticio USD",f'$ {held["equity"]:,.2f}')
+        header[1].metric("Efectivo ficticio USD",f'$ {held["cash"]:,.2f}')
+        header[2].metric("Posiciones",len(book["positions"]))
+        header[3].metric("Ciclos con nuevas cotizaciones",f'{status["cycles"]:,}')
         if status["running"]:
-            st.success(
-                f'● CONECTADO / ESCUCHANDO · estado: {status["status"]} · '
-                f'{status["cycles"]} ciclos con datos nuevos'
-            )
+            st.success(f'● {venue}: {status["status"]}')
         else:
-            st.info(f'● DETENIDO · {status["status"]}')
+            st.info(f'● {venue}: {status["status"]}')
         if status.get("error"):
-            st.error("Advertencia del servicio: "+status["error"])
+            st.error("Diagnóstico de datos: "+status["error"])
         if feed:
             st.caption(
-                f'Kraken: {feed["state"]} · actualizaciones válidas '
-                f'{feed["messages_valid"]} · rechazadas {feed["messages_rejected"]} '
-                f'· reconexiones {feed["reconnect_attempts"]}'
+                f'Estado WebSocket: {feed["state"]} · '
+                f'cotizaciones válidas {feed["messages_valid"]} · '
+                f'rechazadas {feed["messages_rejected"]} · '
+                f'reconexiones {feed["reconnect_attempts"]}'
             )
-            if feed["error"]:
-                st.error("WebSocket: "+feed["error"])
-            quotes=live_runner._client.store.snapshot(max_age_seconds=10) if status["running"] and live_runner._client else {}
+            if feed.get("error"):
+                st.error("Feed: "+feed["error"])
+        tabs=st.tabs(["Precios reales","Cartera y órdenes",
+                      "Por qué opera (o no)","Detalles del proveedor"])
+        with tabs[0]:
+            quotes=(
+                live_runner._client.store.snapshot(max_age_seconds=10)
+                if status["running"] and live_runner._client else {}
+            )
             if quotes:
-                df=pd.DataFrame([
-                    {
-                        "Activo": q.symbol,
-                        "Bid real":q.bid, "Ask real":q.ask,
-                        "Spread (bps)":round(q.spread_bps,2),
-                        "Hora Kraken UTC":q.exchange_time,
-                        "Profundidad bid":q.bid_qty,"Profundidad ask":q.ask_qty,
-                    }
-                    for q in quotes.values()
-                ])
-                st.dataframe(df,hide_index=True,use_container_width=True)
+                st.dataframe(pd.DataFrame([{
+                    "Activo":q.symbol,"Bid real":q.bid,"Ask real":q.ask,
+                    "Spread bps":round(q.spread_bps,2),
+                    "Disponible bid":q.bid_qty,"Disponible ask":q.ask_qty,
+                    "Hora del exchange UTC":q.exchange_time,
+                } for q in quotes.values()]),hide_index=True,use_container_width=True)
             else:
-                st.caption("Esperando actualizaciones reales recientes; ninguna orden se simula sin datos.")
-        cols=st.columns(4)
-        cols[0].metric("Capital PAPER USD",f'$ {state["equity"]:,.2f}')
-        cols[1].metric("Efectivo PAPER USD",f'$ {state["cash"]:,.2f}')
-        cols[2].metric("Posiciones",len(account["positions"]))
-        cols[3].metric("Estado", "RIESGO BLOQUEADO" if state["halted"] else "PAUSADO" if state["paused"] else "PAPER")
-        if account["equity"]:
-            df=pd.DataFrame(account["equity"])
-            fig=_figure("Nory · equity en USD ficticios / precios de mercado reales",300)
+                st.info(
+                    "No hay cotizaciones recientes. La cuenta no sustituirá "
+                    "los datos faltantes con precios sintéticos."
+                )
+        with tabs[1]:
+            if book["positions"]:
+                st.dataframe(pd.DataFrame(book["positions"]),
+                             hide_index=True,use_container_width=True)
+            else:
+                st.caption("Por ahora, el capital está en efectivo ficticio.")
+            if book["pending"]:
+                st.write("**Órdenes hipotéticas pendientes de una cotización POSTERIOR**")
+                st.dataframe(pd.DataFrame(book["pending"]),
+                             hide_index=True,use_container_width=True)
+            if book["fills"]:
+                st.write("**Movimientos contables ficticios**")
+                st.dataframe(pd.DataFrame(book["fills"]),
+                             hide_index=True,use_container_width=True)
+        with tabs[2]:
+            if book["decisions"]:
+                st.dataframe(pd.DataFrame(book["decisions"]),
+                             hide_index=True,use_container_width=True)
+                counts=pd.DataFrame(book["decisions"])["decision"].value_counts().reset_index()
+                counts.columns=["Motivo de decisión","Cantidad (últimas 240)"]
+                st.dataframe(counts,hide_index=True,use_container_width=True)
+            else:
+                st.info("Esperando suficientes cotizaciones y señales verificables.")
+            st.caption(
+                "WARMUP = historial insuficiente. WAIT = no hay rebote adecuado. "
+                "BLOCK_COSTS = la ganancia hipotética no compensaría comisiones, "
+                "spread y deslizamiento. Esto no es un error del programa."
+            )
+        with tabs[3]:
+            st.write(
+                "Fuente pública de precios, no servicio de intermediación. "
+                "Las órdenes se SIMULAN al próximo bid/ask recibido; la "
+                "profundidad visible puede desaparecer antes de una orden real."
+            )
+            st.write("**Parámetros de riesgo:**")
+            st.json({
+                "proveedor":venue,
+                "intervalo_comprobacion_segundos":status["interval_seconds"],
+                "comision_simulada_bps_por_lado":status["assumed_fee_bps_each_side"],
+                "fuente":"datos verdaderos, movimientos ficticios",
+                "cuenta":"separada por proveedor",
+            },expanded=False)
+        if book["equity"]:
+            eq=pd.DataFrame(book["equity"])
+            fig=_figure("Capital Nory · papel con cotizaciones reales",300)
             fig.add_trace(go.Scatter(
-                x=df["observed_at"],y=df["equity"],mode="lines",
-                line=dict(color="#ff0d00",width=2.4),name="Capital PAPER",
+                x=eq["observed_at"],y=eq["equity"],
+                line=dict(color="#ff0d00",width=2.4),
+                name="Capital paper",mode="lines",
             ))
             st.plotly_chart(fig,use_container_width=True)
-        if account["positions"]:
-            st.markdown("**Posiciones ficticias, valoradas usando bids reales recibidos**")
-            st.dataframe(pd.DataFrame(account["positions"]),hide_index=True,use_container_width=True)
-        if account["pending"]:
-            st.markdown("**Órdenes hipotéticas para la SIGUIENTE cotización recibida**")
-            st.dataframe(pd.DataFrame(account["pending"]),hide_index=True,use_container_width=True)
-        if account["fills"]:
-            st.markdown("**Operaciones hipotéticas registradas (bid/ask y comisiones)**")
-            st.dataframe(pd.DataFrame(account["fills"]),hide_index=True,use_container_width=True)
-        if account["decisions"]:
-            with st.expander("🧠 Nory: por qué compró, esperó o bloqueó"):
-                st.dataframe(pd.DataFrame(account["decisions"]),hide_index=True,use_container_width=True)
-        st.caption(
-            "Costes simulados conservadores: 80 bps por lado, slippage 5 bps por lado, "
-            "spread real observado y límite de participación de 10 % de la profundidad visible. "
-            "Las órdenes NO se envían y las cotizaciones NO garantizan llenado."
-        )
-    _live_kraken_panel()
+    _render_live_venue()
 
 with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones pequeñas", expanded=True):
     st.markdown("**Laboratorio de estrategia multiactivo a intervalos de ~1 segundo.**")
