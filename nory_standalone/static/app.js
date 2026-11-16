@@ -272,7 +272,7 @@ function render() {
     ? "EN ESPERA"
     : a.halted
       ? "BLOQUEO DE RIESGO"
-      : "ANÁLISIS CONTINUO";
+      : `${num(state.activity?.evaluations ?? 0, 0)} ANÁLISIS · ${state.stats.fills} EJECUCIONES`;
   $("risk-state").textContent = a.halted
     ? "Bloqueado"
     : state.stale_positions.length
@@ -287,7 +287,9 @@ function render() {
       ? "Valoración con precios antiguos en: " +
         state.stale_positions.join(", ") +
         ". El resultado actual es una estimación con última cotización conocida."
-      : "";
+      : state.migration
+        ? "Nueva versión de análisis: esta es una cartera de investigación nueva; el experimento anterior se conserva intacto."
+        : "";
   showError(warning);
   for (const [id, kind] of [
     ["export-quotes", "quotes"],
@@ -295,6 +297,11 @@ function render() {
   ])
     $(id).href =
       `/api/export/${kind}?provider=${encodeURIComponent(a.provider)}&strategy=${encodeURIComponent(a.strategy)}`;
+  const chartNote = document.querySelector(".chart-footer > span:last-child");
+  if (chartNote)
+    chartNote.textContent = Object.keys(a.positions).length
+      ? "Incluye costes de liquidación estimados"
+      : "Sin posiciones: capital en efectivo";
   updateControls();
   renderSection();
 }
@@ -398,7 +405,7 @@ function renderMarkets() {
   const m = state.markets.find((m) => m.symbol === selectedSymbol);
   if (!m) return;
   $("market-detail").innerHTML =
-    `<div class="eyebrow">TRAZABILIDAD DE LA SEÑAL · ${esc(m.symbol)}</div><h2>${esc(names[m.symbol.split("-")[0]] || m.symbol)} ${tag(m.action)}</h2><p class="muted small">${esc(m.reason)}</p><div class="detail-grid"><div class="detail-cell">Antigüedad de la cotización<strong>${num(m.age_seconds, 1)} s</strong></div><div class="detail-cell">Muestras genuinas por intervalo<strong>${num(m.samples, 0)} / ${state.config.min_history}</strong></div><div class="detail-cell">Margen heurístico · no pronóstico<strong>${num(m.headroom_bps, 1)} bps</strong></div><div class="detail-cell">Coste estimado ida/vuelta<strong>${num(m.features.round_trip_cost_bps ?? 2 * (state.config.fee_bps[state.state.provider] + state.config.slippage_bps) + (m.spread_bps ?? 0), 1)} bps</strong></div></div><div class="checks">${Object.entries(
+    `<div class="eyebrow">TRAZABILIDAD DE LA SEÑAL · ${esc(m.symbol)}</div><h2>${esc(names[m.symbol.split("-")[0]] || m.symbol)} ${tag(m.action)}</h2><p class="muted small">${esc(m.reason)}</p><div class="detail-grid"><div class="detail-cell">Antigüedad de la cotización<strong>${num(m.age_seconds, 1)} s</strong></div><div class="detail-cell">Contexto disponible<strong>${num(m.samples, 0)} / ${state.config.min_history}</strong></div><div class="detail-cell">Margen heurístico · no pronóstico<strong>${num(m.headroom_bps / 100, 2)} %</strong></div><div class="detail-cell">Umbral de entrada con costes<strong>${num((m.features.entry_threshold_bps ?? 2 * (state.config.fee_bps[state.state.provider] + state.config.slippage_bps) + (m.spread_bps ?? 0) + state.config.min_net_edge_bps) / 100, 2)} %</strong></div></div><div class="checks">${Object.entries(
       m.checks,
     )
       .map(
@@ -407,7 +414,7 @@ function renderMarkets() {
       )
       .join(
         "",
-      )}</div><p class="panel-note">Ventana local: ${num(m.samples * state.config.sample_seconds, 0)} s nominales, con huecos posibles. RSI: ${num(m.features.rsi, 1)} · Momentum: ${num(m.features.momentum_bps, 1)} bps · Volumen de 24 h reportado: ${num(m.quote?.volume_24h, 2)} unidades base. Sin contexto de noticias verificado.</p>`;
+      )}</div><p class="panel-note">Contexto observado: ${num((m.analysis_span_seconds ?? 0) / 60, 1)} min. Intervalos de ${state.config.analysis_interval_seconds} s. Carga histórica: ${esc(m.history_status?.state ?? "OBSERVING")}. RSI: ${num(m.features.rsi, 1)} · Momentum: ${num(m.features.momentum_bps, 1)} bps · Volumen de 24 h reportado: ${num(m.quote?.volume_24h, 2)} unidades base. Sin contexto de noticias verificado.</p>`;
 }
 function renderOperations() {
   const a = state.state;
@@ -574,7 +581,7 @@ function renderIntelligence() {
     const r = state.research.find((x) => x.provider === a.provider);
     html = panel(
       "Evaluar antes de creer.",
-      `<div class="section-text"><p>Reproduce el historial de cotizaciones registrado por ${esc(feedNames[a.provider])}. El 70 % inicial sirve para comparar estrategias. El 30 % posterior se evalúa con capital nuevo, después de un embargo que supera la vigencia de las órdenes. La prueba no cambia las estrategias activas.</p><p>Se requieren al menos ${cfg.min_history * 3} intervalos observados; un historial breve no permite demostrar una ventaja estadística.</p></div><div class="research-action"><button id="run-research" class="primary" ${state.research_state.running ? "disabled" : ""}>${state.research_state.running ? "Evaluando historial…" : "Evaluar historial registrado"}</button><span>Datos públicos registrados · órdenes ficticias</span></div>${state.research_state.error ? `<div class="section-text negative">${esc(state.research_state.error)}</div>` : ""}${
+      `<div class="section-text"><p>Reproduce el historial de cotizaciones registrado por ${esc(feedNames[a.provider])}. El 70 % inicial sirve para comparar estrategias. El 30 % posterior se evalúa con capital nuevo, después de un embargo que supera la vigencia de las órdenes. La prueba no cambia las estrategias activas. <a class="text-button" href="/api/export/context?provider=${encodeURIComponent(a.provider)}">Descargar contexto histórico ↓</a></p><p>Se requieren al menos ${cfg.min_history * 3} intervalos observados; un historial breve no permite demostrar una ventaja estadística.</p></div><div class="research-action"><button id="run-research" class="primary" ${state.research_state.running ? "disabled" : ""}>${state.research_state.running ? "Evaluando historial…" : "Evaluar historial registrado"}</button><span>Datos públicos registrados · órdenes ficticias</span></div>${state.research_state.error ? `<div class="section-text negative">${esc(state.research_state.error)}</div>` : ""}${
         r
           ? `<div class="section-text"><span class="validation-label">${esc(r.source)}</span><p>Elegida solo con entrenamiento: <strong>${esc(labels[r.selected_from_training])}</strong><br>Prueba: ${esc(r.test_start)} → ${esc(r.test_end)}<br>Embargo: ${r.embargo_seconds} s. ${r.observed_intervals} intervalos observados.</p></div>${table(
               [
@@ -596,7 +603,7 @@ function renderIntelligence() {
   } else {
     html = panel(
       "Calidad de datos y trazabilidad.",
-      `<div class="section-text"><p>${esc(state.diagnosis)}</p><p>Los ciclos indican revisiones del motor. Las cotizaciones aceptadas son mensajes nuevos del mercado; las muestras agrupan como máximo un precio observado por intervalo y activo. No se rellenan huecos ni se generan precios sintéticos.</p></div>${table(
+      `<div class="section-text"><p>${esc(state.diagnosis)}</p><p>${num(state.activity?.evaluations ?? 0, 0)} evaluaciones de esta cartera; ${num(state.activity?.cost_rejections ?? 0, 0)} no superaron el margen de costes. Los ciclos indican revisiones del motor. Las cotizaciones aceptadas son mensajes nuevos del mercado; las muestras agrupan como máximo un precio observado por intervalo y activo. No se rellenan huecos ni se generan precios sintéticos.</p></div>${table(
         ["MÉTRICA", "VALOR"],
         Object.entries(state.metrics).map(
           ([k, v]) =>

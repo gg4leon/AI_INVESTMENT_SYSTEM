@@ -41,7 +41,7 @@ def create_app(cfg=None, db_path=None, *, network=True):
 
     app = FastAPI(
         title="NORY 2.0 · Paper Research",
-        version="2.0.0",
+        version="2.1.0",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -142,7 +142,16 @@ def create_app(cfg=None, db_path=None, *, network=True):
     async def run_research(provider):
         try:
             quotes = await asyncio.to_thread(engine.store.recorded, provider, 30_000)
-            result = await asyncio.to_thread(validate, quotes, cfg)
+            context = await asyncio.to_thread(
+                engine.store.context,
+                provider=provider,
+                start=quotes[0].received_ts
+                - cfg.analysis_lookback * cfg.analysis_interval_seconds
+                if quotes
+                else 0,
+                end=quotes[-1].received_ts if quotes else time.time(),
+            )
+            result = await asyncio.to_thread(validate, quotes, cfg, context=context)
             await asyncio.to_thread(engine.store.save_research, result, time.time())
         except Exception as exc:
             research_state["error"] = str(exc)[:400]
@@ -168,6 +177,22 @@ def create_app(cfg=None, db_path=None, *, network=True):
 
     @app.get("/api/export/{kind}")
     async def export(kind: str, provider: str = "coinbase", strategy: str = "trend"):
+        if kind == "context" and provider in cfg.providers:
+            points = await asyncio.to_thread(
+                engine.store.context,
+                provider=provider,
+                end=time.time(),
+                limit=cfg.max_recorded_samples,
+            )
+            return JSONResponse(
+                {
+                    "mode": "RECORDED_PUBLIC_CONTEXT",
+                    "points": [p.as_dict() for p in points],
+                },
+                headers={
+                    "Content-Disposition": f'attachment; filename="nory_{provider}_context.json"'
+                },
+            )
         if (
             kind not in ("quotes", "fills", "round_trips")
             or f"{provider}:{strategy}" not in engine.core.accounts

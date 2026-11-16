@@ -1,13 +1,14 @@
 import asyncio
-from collections import Counter
 from dataclasses import asdict
 import logging
 from pathlib import Path
 import time
 
 from .core import ResearchCore
+from .config import RULES_VERSION
 from .feeds import PublicFeed
-from .storage import Store
+from .history import PublicHistoryClient
+from .storage import Store, resolve_database
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,15 @@ class ProcessLock:
 
 
 class Engine:
-    def __init__(self, cfg, db_path, *, network=True, feed_factory=PublicFeed):
+    def __init__(
+        self,
+        cfg,
+        db_path,
+        *,
+        network=True,
+        feed_factory=PublicFeed,
+        history_factory=PublicHistoryClient,
+    ):
         self.cfg, self.db_path, self.network, self.feed_factory = (
             cfg,
             Path(db_path),
@@ -70,8 +79,21 @@ class Engine:
         self.last_decisions = {}
         self.pending_checkpoint = None
         self.shutdown = asyncio.Event()
+        self.migration = None
+        self.history_factory = history_factory
+        self.history_client = None
+        self.history_queue = asyncio.Queue(
+            maxsize=len(cfg.symbols) * len(cfg.providers)
+        )
+        self.history_pending = set()
+        self.history_attempts = {}
+        self.history_status = {}
 
     async def open(self):
+        self.db_path, self.migration = await asyncio.to_thread(
+            resolve_database, self.db_path, self.cfg
+        )
+        self.process_lock = ProcessLock(str(self.db_path) + ".lock")
         self.process_lock.acquire()
         try:
             self.store = Store(self.db_path, self.cfg)
@@ -79,13 +101,25 @@ class Engine:
             self.core = ResearchCore(self.cfg, accounts)
             self.core.latest = {(q.provider, q.symbol): q for q in latest}
             self.core.freeze_until = {(p, s): until for p, s, until in freeze}
+            now = time.time()
+            cached = await asyncio.to_thread(
+                self.store.context,
+                start=now
+                - self.cfg.analysis_interval_seconds * self.cfg.analysis_lookback,
+                end=now,
+            )
+            self.core.analysis.seed(cached, now, record=False)
             self.core.cancel_all("CANCELED_RESTART")
             await self._checkpoint([], time.time())
             if self.network:
+                self.history_client = self.history_factory(self.cfg)
+                self.tasks.append(
+                    asyncio.create_task(self._history_loop(), name="nory-history")
+                )
                 for provider in self.cfg.providers:
-                    feed = self.feed_factory(
-                        provider, self.cfg.symbols, self.core.receive
-                    )
+                    for symbol in self.cfg.symbols:
+                        self._request_history(provider, symbol, now)
+                    feed = self.feed_factory(provider, self.cfg.symbols, self.receive)
                     self.feeds[provider] = feed
                     self.tasks.append(
                         asyncio.create_task(feed.run(), name=f"nory-data-{provider}")
@@ -105,6 +139,8 @@ class Engine:
             if task.get_name() != "nory-coordinator":
                 task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
+        if self.history_client:
+            await self.history_client.close()
         async with self.guard:
             self.running = False
             if self.core and self.store:
@@ -132,6 +168,7 @@ class Engine:
             "fills": fills,
             "orders": orders,
             "closed": closed,
+            "context": [p.as_dict() for p in self.core.analysis.events],
             "decisions": decisions,
             "freeze": [
                 [p, s, until]
@@ -139,6 +176,7 @@ class Engine:
                 if until > now
             ],
         }
+        self.core.analysis.events.clear()
         try:
             await asyncio.to_thread(self.store.checkpoint, payload)
         except Exception:
@@ -158,7 +196,7 @@ class Engine:
                     now = time.time()
                     changed = self.core.step(now, running=self.running)
                     self.cycles += 1
-                    if changed or self.core.order_events:
+                    if changed or self.core.order_events or self.core.analysis.events:
                         await self._checkpoint(changed, now)
                 await asyncio.sleep(
                     max(0.01, self.cfg.cadence_seconds - (time.monotonic() - before))
@@ -169,6 +207,68 @@ class Engine:
             self.running = False
             self.fatal_error = f"{type(exc).__name__}: {str(exc)[:300]}"
             log.exception("Motor detenido por error; se requiere reiniciar el servicio")
+
+    def receive(self, quote, now):
+        accepted = self.core.receive(quote, now)
+        if accepted:
+            self._request_history(quote.provider, quote.symbol, now)
+        return accepted
+
+    def _request_history(self, provider, symbol, now):
+        key = provider, symbol
+        if not self.network or self.cfg.analysis_interval_seconds not in (60, 300):
+            return
+        if not self.core.analysis.needs_backfill(provider, symbol, now):
+            previous = self.history_status.get(key)
+            self.history_status[key] = {
+                **(previous or {}),
+                "state": "READY" if previous else "CACHED",
+                "error": None,
+            }
+            return
+        if key in self.history_pending or now - self.history_attempts.get(key, 0) < 90:
+            return
+        self.history_pending.add(key)
+        self.history_status[key] = {"state": "LOADING", "error": None}
+        self.history_queue.put_nowait(key)
+
+    async def _history_loop(self):
+        while True:
+            provider, symbol = key = await self.history_queue.get()
+            self.history_attempts[key] = time.time()
+            try:
+                samples = await self.history_client.fetch(provider, symbol)
+                if not samples:
+                    raise ValueError(
+                        "El proveedor no devolvió velas públicas cerradas."
+                    )
+                async with self.guard:
+                    self.core.analysis.seed(samples, time.time())
+                    await self._checkpoint([], time.time())
+                self.history_status[key] = {
+                    "state": "PARTIAL"
+                    if self.core.analysis.needs_backfill(provider, symbol, time.time())
+                    else "READY",
+                    "error": "El contexto todavía tiene huecos o es insuficiente."
+                    if self.core.analysis.needs_backfill(provider, symbol, time.time())
+                    else None,
+                    "candles": len(samples),
+                }
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if self.pending_checkpoint is not None:
+                    self.running = False
+                    self.fatal_error = f"Error al persistir el contexto: {exc}"
+                    log.exception("Motor detenido por error de persistencia")
+                    return
+                self.history_status[key] = {"state": "ERROR", "error": str(exc)[:240]}
+                log.warning(
+                    "Historial público %s %s: %s", provider, symbol, str(exc)[:240]
+                )
+            finally:
+                self.history_pending.discard(key)
+                self.history_queue.task_done()
 
     async def start(self):
         async with self.guard:
@@ -214,7 +314,11 @@ class Engine:
             decision = decisions.get(symbol)
             fresh = q is not None and q.fresh(now, self.cfg.quote_max_age_seconds)
             pos = report["state"]["positions"].get(symbol)
-            history = self.core.history_for(provider, symbol)
+            history = (
+                self.core.analysis.points_for(q)
+                if q
+                else self.core.analysis.closed_for(provider, symbol, now)
+            )
             change = (q.mid / history[0].mid - 1) * 100 if q and history else None
             action = decision["action"] if decision else "WARMUP"
             reason = (
@@ -243,7 +347,7 @@ class Engine:
                     if q
                     else None,
                     "change_pct": change,
-                    "change_label": "Ventana local observada",
+                    "change_label": "Ventana de análisis observada",
                     "risk": "Alto"
                     if not fresh or action == "BLOCK_RISK"
                     else "Moderado",
@@ -254,11 +358,26 @@ class Engine:
                     "features": decision["features"] if decision else {},
                     "headroom_bps": decision.get("headroom_bps", 0) if decision else 0,
                     "samples": len(history),
+                    "analysis_span_seconds": q.exchange_ts - history[0].exchange_ts
+                    if q and history
+                    else 0,
+                    "history_status": self.history_status.get(
+                        (provider, symbol), {"state": "OBSERVING", "error": None}
+                    ),
                     "position": pos,
                 }
             )
         fresh_count = sum(m["fresh"] for m in markets)
-        counts = Counter(m["action"] for m in markets)
+        activity = {
+            "evaluations": self.core.activity[(account_id, "EVALUATED")],
+            "ready_evaluations": self.core.activity[(account_id, "READY_EVALUATED")],
+            "cost_rejections": self.core.activity[(account_id, "COST_FILTER")],
+            "risk_rejections": self.core.activity[(account_id, "BLOCK_RISK")],
+            "fills": report["stats"]["fills"],
+            "positions": len(report["state"]["positions"]),
+            "pending": len(report["state"]["orders"]),
+            "scope": "Evaluaciones de esta cartera desde que se abrió el proceso; fills de todo su historial.",
+        }
         if self.fatal_error:
             diagnosis = "Motor detenido por error: " + self.fatal_error
         elif not self.running:
@@ -269,12 +388,43 @@ class Engine:
             diagnosis = "Sin cotizaciones frescas. Revisa la conexión de los proveedores; no se sustituyen los precios."
         elif strategy == "cash":
             diagnosis = "La estrategia defensiva conserva efectivo por diseño y sirve como referencia de exposición cero."
+        elif activity["pending"]:
+            diagnosis = f"Hay {activity['pending']} órdenes pendientes. Nory espera cotizaciones posteriores para simular su ejecución."
+        elif activity["positions"]:
+            diagnosis = f"Nory vigila {activity['positions']} posiciones y ha registrado {activity['fills']} ejecuciones ficticias. El capital neto incluye su valor y costes estimados de salida."
         else:
-            main_reason = counts.most_common(1)[0][0]
-            diagnosis = f"Nory analiza {fresh_count} mercados frescos. Estado más frecuente: {main_reason}. "
-            diagnosis += next(
-                (m["reason"] for m in markets if m["action"] == main_reason), ""
-            )
+            ready = [
+                m
+                for m in markets
+                if m["fresh"]
+                and m["samples"] >= self.cfg.min_history
+                and m["action"] != "WARMUP"
+            ]
+            if not ready:
+                errors = [
+                    m["history_status"]["error"]
+                    for m in markets
+                    if m["history_status"].get("error")
+                ]
+                diagnosis = f"Preparando contexto de minutos y horas para {fresh_count} mercados frescos. El capital sigue en efectivo hasta tener historial suficiente."
+                if errors:
+                    diagnosis += " Historial público: " + errors[0]
+            else:
+                best = max(ready, key=lambda m: m["headroom_bps"])
+                threshold = best["features"].get(
+                    "entry_threshold_bps",
+                    2 * (self.cfg.fee_bps[provider] + self.cfg.slippage_bps)
+                    + (best["spread_bps"] or 0)
+                    + self.cfg.min_net_edge_bps,
+                )
+                if best["headroom_bps"] < threshold:
+                    diagnosis = (
+                        f"Sin compras: el margen técnico de {best['symbol']} es {best['headroom_bps'] / 100:.2f} %; "
+                        f"se exige {threshold / 100:.2f} % por costes y margen adicional. "
+                        f"{activity['evaluations']} evaluaciones realizadas; el capital permanece en efectivo."
+                    )
+                else:
+                    diagnosis = "Sin compras: " + best["reason"]
         stale_positions = [
             s
             for s in report["state"]["positions"]
@@ -284,9 +434,15 @@ class Engine:
             {
                 "markets": markets,
                 "diagnosis": diagnosis,
+                "activity": activity,
+                "migration": self.migration,
+                "history": {
+                    f"{p}:{s}": status for (p, s), status in self.history_status.items()
+                },
                 "stale_positions": stale_positions,
                 "timestamp": now,
                 "mode": "PAPER_ONLY",
+                "rules_version": RULES_VERSION,
                 "running": self.running,
                 "started_at": self.started_at,
                 "fatal_error": self.fatal_error,

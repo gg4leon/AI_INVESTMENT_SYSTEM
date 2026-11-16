@@ -8,6 +8,7 @@ import sqlite3
 
 from .config import STRATEGIES, RULES_VERSION
 from .models import Account, Quote
+from .history import PriceSample
 
 
 def encode(value):
@@ -51,8 +52,33 @@ CREATE TABLE IF NOT EXISTS asset_totals (
 CREATE TABLE IF NOT EXISTS benchmark (
  provider TEXT PRIMARY KEY, first_quote TEXT NOT NULL, last_quote TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS research (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at REAL NOT NULL, data TEXT NOT NULL);
-PRAGMA user_version=1;
+CREATE TABLE IF NOT EXISTS context_points (
+ provider TEXT, symbol TEXT, exchange_ts REAL, known_at REAL, source TEXT, data TEXT NOT NULL,
+ PRIMARY KEY(provider,symbol,exchange_ts,known_at,source));
+CREATE INDEX IF NOT EXISTS context_lookup ON context_points(provider,exchange_ts,known_at);
+PRAGMA user_version=2;
 """
+
+
+def resolve_database(path, cfg):
+    """Archive an old rules experiment by leaving its entire database untouched."""
+    path = Path(path)
+    if not path.exists():
+        return path, None
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+        row = db.execute("SELECT value FROM meta WHERE key='rules_version'").fetchone()
+    if row and row[0] == "2.0.0-fixed-rules":
+        target = path.with_name(
+            f"{path.stem}.v2_1_{cfg.fingerprint()[:8]}{path.suffix}"
+        )
+        return target, {
+            "previous_database": path.name,
+            "database": target.name,
+            "notice": "Nory 2.1 inicia un experimento con horizontes nuevos. Tu cartera e historial anteriores se conservan intactos en "
+            + path.name
+            + ".",
+        }
+    return path, None
 
 
 class Store:
@@ -137,6 +163,18 @@ class Store:
             for key, state in payload["accounts"].items():
                 db.execute(
                     "UPDATE accounts SET state=? WHERE id=?", (encode(state), key)
+                )
+            for point in payload.get("context", []):
+                db.execute(
+                    "INSERT OR IGNORE INTO context_points VALUES(?,?,?,?,?,?)",
+                    (
+                        point["provider"],
+                        point["symbol"],
+                        point["exchange_ts"],
+                        point["known_at"],
+                        point["source"],
+                        encode(point),
+                    ),
                 )
             for q in payload["quotes"]:
                 raw = encode(q)
@@ -285,6 +323,18 @@ class Store:
             if now - self.last_maintenance >= 300:
                 cutoff = now - self.cfg.retention_days * 86400
                 db.execute("DELETE FROM samples WHERE received_ts < ?", (cutoff,))
+                db.execute(
+                    "DELETE FROM context_points WHERE exchange_ts < ?",
+                    (
+                        cutoff
+                        - self.cfg.analysis_lookback
+                        * self.cfg.analysis_interval_seconds,
+                    ),
+                )
+                db.execute(
+                    "DELETE FROM context_points WHERE rowid IN (SELECT rowid FROM context_points ORDER BY known_at DESC LIMIT -1 OFFSET ?)",
+                    (self.cfg.max_recorded_samples,),
+                )
                 # Hard cap bounds disk use even with an unusually active universe.
                 db.execute(
                     "DELETE FROM samples WHERE rowid IN (SELECT rowid FROM samples ORDER BY received_ts DESC LIMIT -1 OFFSET ?)",
@@ -434,6 +484,17 @@ class Store:
                     ]
                 )
             )
+
+    def context(self, *, provider=None, start=0, end=float("inf"), limit=60000):
+        with closing(self.reader()) as db:
+            sql = "SELECT data FROM context_points WHERE exchange_ts>=? AND known_at<=?"
+            args = [start, end]
+            if provider:
+                sql += " AND provider=?"
+                args.append(provider)
+            sql += " ORDER BY known_at,exchange_ts LIMIT ?"
+            args.append(limit)
+            return [PriceSample(**json.loads(r[0])) for r in db.execute(sql, args)]
 
     def save_research(self, report, now):
         # Separate writer connection: research may finish concurrently with a live checkpoint.

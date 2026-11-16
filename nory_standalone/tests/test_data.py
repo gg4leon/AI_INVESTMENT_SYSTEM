@@ -121,8 +121,8 @@ def test_same_asset_different_providers_never_share_history_or_cash():
     assert core.accounts["coinbase:cash"].cash == 10000
 
 
-def test_interval_sampling_no_artificial_ticks_and_gap_restarts_warmup():
-    core = ResearchCore(config())
+def test_interval_sampling_no_artificial_ticks_and_large_gap_resets_short_buffer():
+    core = ResearchCore(config(max_gap_seconds=8))
     for t in (0, 0.1, 0.2, 0.3, 1, 2, 20):
         core.receive(quote(t), T + t)
         core.step(T + t + 0.01, running=False)

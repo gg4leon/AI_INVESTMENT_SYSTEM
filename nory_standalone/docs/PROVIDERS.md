@@ -25,6 +25,13 @@ todos los productos configurados. Nory usa una conexión por proveedor, una peti
 de suscripción al conectar y backoff de 1–30 s con jitter al reconectar. El panel
 muestra confirmaciones y rechazos; no lanza consultas HTTP de precios repetidas.
 
+El motor 2.1 añade una carga inicial y recuperación puntual de contexto mediante
+los endpoints públicos de velas. Coinbase recibe `granularity=60` y Kraken
+`interval=1` por defecto. Se descarta todo intervalo no terminado; los cierres se
+guardan con su fecha de adquisición y no se usan como cotizaciones de ejecución.
+Se espacian peticiones (1.1 s Kraken, 0.25 s Coinbase) y un fallo por activo espera
+al menos 90 s antes de reintentar al recibir nuevos datos. No es polling de precios.
+
 Kraken permite una lista de símbolos y confirma suscripciones individualmente;
 `bbo` dispara cambios del mejor bid/offer. No se cuenta el heartbeat como una
 actualización. Los relojes y la actividad de un producto pueden dejar precios
@@ -43,6 +50,8 @@ cuando la amplitud observada no compensa el coste. No se garantiza rentabilidad.
 - [Coinbase Exchange: canales públicos y esquema ticker](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels)
 - [Coinbase Exchange: conexiones y límites](https://help.coinbase.com/en/exchange/managing-my-account/market-data-connections)
 - [Kraken: ticker v2, BBO y campos](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker)
+- [Coinbase: velas históricas públicas](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles)
+- [Kraken: OHLC público y vela pendiente](https://docs.kraken.com/api-reference/market-data/get-ohlc-data)
 - [Alpaca: planes de Market Data](https://docs.alpaca.markets/us/docs/about-market-data-api)
 - [Alpaca: datos de acciones en tiempo real](https://docs.alpaca.markets/us/docs/real-time-stock-pricing-data)
 - [Twelve Data: planes individuales](https://twelvedata.com/pricing)

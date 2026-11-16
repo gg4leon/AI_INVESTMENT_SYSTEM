@@ -1,5 +1,9 @@
 # Inspección del proyecto de referencia
 
+La auditoría registra la base y la entrega inicial. En el motor 2.1 se conserva
+también ese SVG exacto y se añade una variante de letras blancas para fondo oscuro,
+según [CONTEXT_FIX.md](CONTEXT_FIX.md).
+
 Base: `gg4leon/AI_INVESTMENT_SYSTEM`, rama `main`, commit
 `772c9c6b75d1774a8aa29a039782ddd85d2a496a`.
 

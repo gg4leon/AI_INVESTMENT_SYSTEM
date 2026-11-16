@@ -2,7 +2,8 @@
 
 Aplicación local independiente de AIS: datos públicos de Coinbase Exchange y
 Kraken, cinco estrategias explicables y ejecución **exclusivamente simulada**.
-El logo es una copia byte por byte de `../assets/ais_original.svg`.
+El SVG original se conserva intacto. La variante `ais_dark.svg` mantiene sus
+formas y trazos rojos, cambia únicamente las letras a blanco y usa fondo transparente.
 No usa claves de inversión, cuentas de bróker, depósitos ni retiros.
 
 ## Instalar y abrir en Windows / VS Code
@@ -78,8 +79,24 @@ Los datos se conectan al abrir el servicio, incluso detenido, para observar el
 mercado y preparar indicadores. Iniciar habilita decisiones; no obliga a comprar.
 El motor es un servicio asíncrono separado de las vistas y sigue activo al
 cambiar de pestaña o cerrar el navegador. **Cerrar el proceso Python sí lo
-detiene.** Tras un reinicio siempre queda detenido y vuelve a calentar el
-historial; recupera posiciones y cancela órdenes pendientes anteriores.
+detiene.** Tras un reinicio queda detenido, recupera el contexto guardado y
+completa huecos con datos públicos; conserva posiciones y cancela pendientes.
+
+### Actualizar desde el motor 2.0 al 2.1
+
+Cierra la instancia anterior. Desde la raíz del repositorio:
+
+```powershell
+git switch feature/nory-2-standalone
+git pull origin feature/nory-2-standalone
+.\nory_standalone\INICIAR_NORY.bat
+```
+
+El `.bat` comprueba las versiones de dependencias e instala las que falten.
+La corrección cambia los horizontes de análisis, por lo que abre automáticamente
+un **experimento nuevo**, con otro archivo junto a la base anterior. La cartera,
+posiciones y resultados del experimento 2.0 quedan intactos en su archivo original;
+no se reinterpretan con las reglas nuevas. El panel avisa de esta separación.
 
 ## Datos auténticos y límites
 
@@ -100,7 +117,8 @@ Se agrupan mensajes entre evaluaciones de 0.5–1 segundo y se conserva una mues
 auténtica por intervalo/activo. **No se inventan velas ni se rellenan huecos.**
 Más ciclos no significan más precios. Se rechazan mensajes duplicados,
 desordenados, libros cruzados/no finitos y fechas vencidas o demasiado futuras.
-Los heartbeats no actualizan precios. Los huecos grandes reinician el historial.
+Los heartbeats no actualizan precios. Los huecos grandes reinician solo el buffer
+corto de cotizaciones; una pausa de ocho segundos no borra horas de análisis.
 Una secuencia de ticker Coinbase no es una secuencia contigua de libro completo;
 no se presume haber reconstruido nivel 2 ni profundidad oculta.
 
@@ -116,10 +134,23 @@ No se conecta ningún proveedor de acciones sin credenciales y permisos compatib
 ## Reglas y ejecución
 
 Cinco hipótesis fijas: tendencia, reversión, momentum, ruptura de rango y efectivo.
-Se evalúan medias de 15/60 muestras, momentum de 30/120, RSI simple de 14 cambios,
-volatilidad, rango, bid/ask, tamaño visible y volumen reportado. Los horizontes son
-intervalos observados de la configuración, **no medias diarias**. El score cuenta
-reglas cumplidas: no es probabilidad ni una predicción validada.
+El motor revisa precios nuevos cada 0.5 s, pero usa por defecto contexto de **un
+minuto por observación**, medias de unos **15/60 minutos**, momentum de 30 minutos,
+RSI de 14 cambios y un rango de hasta **cuatro horas**. Esto evita comparar el coste
+de una operación completa contra fluctuaciones de apenas dos minutos. Los costes,
+reservas y filtros de riesgo no se reducen para fabricar actividad.
+
+Al iniciar carga cierres públicos de Coinbase y Kraken, descarta la vela todavía
+abierta y guarda la hora a la que conoció cada dato. Después combina ese contexto
+con puntos medios bid/ask observados del mismo exchange y moneda; el spread se
+contabiliza aparte. No presume haber reconstruido OHLC de trades desde BBO. Solo
+se consulta REST al iniciar o al recuperar contexto insuficiente, con espera entre
+solicitudes y reintentos limitados. El flujo habitual sigue siendo WebSocket.
+
+Los datos históricos nunca crean precios ejecutables, órdenes ni fills por sí
+solos. Toda ejecución necesita una nueva cotización en vivo, posterior a la
+decisión. Si falta contexto o su cobertura es insuficiente, el panel lo explica.
+El score cuenta reglas cumplidas; no es probabilidad ni predicción validada.
 
 Las entradas necesitan un margen heurístico superior a comisiones en ambos lados,
 spread observado, deslizamiento y un margen adicional. Ese margen es amplitud
@@ -176,7 +207,9 @@ prospectivas permiten investigar una mejora antes de versionarla.
 
 En **Inteligencia → Validación histórica → Evaluar historial registrado**, se
 reproduce un máximo de 30,000 muestras recientes del proveedor seleccionado.
-Requiere al menos 360 intervalos con la configuración inicial. La elección de
+Requiere al menos 360 intervalos de cotizaciones y contexto suficiente durante
+entrenamiento. Un calentamiento sin señales no se acepta como backtest válido.
+La elección de
 estrategia usa únicamente el primer 70 %; el test comienza después de un embargo
 de vigencia de orden + antigüedad máxima de cotización. El libro de prueba empieza
 en efectivo con indicadores calentados exclusivamente con datos anteriores.
@@ -191,10 +224,11 @@ del P/L neto medio mediante bootstrap por bloques. Con menos cierres muestra
 «muestra insuficiente». El intervalo no elimina sesgos de selección, cambios de
 régimen, tamaños distintos ni errores del simulador; no promueve estrategias.
 
-Desde un CSV exportado de Mercados, también puedes usar:
+Desde un CSV exportado de Mercados y el contexto descargado en Validación
+histórica, también puedes usar:
 
 ```powershell
-.\.venv\Scripts\python.exe run.py backtest --csv .\nory_coinbase_trend_quotes.csv --source DECLARED_PUBLIC_CSV_UNVERIFIED --output validacion.json
+.\.venv\Scripts\python.exe run.py backtest --csv .\nory_coinbase_trend_quotes.csv --context .\nory_coinbase_context.json --source DECLARED_PUBLIC_CSV_UNVERIFIED --output validacion.json
 ```
 
 Un CSV externo tiene procedencia declarada y **no verificada**, incluso si parece
@@ -231,7 +265,10 @@ Consulta [VALIDATION.md](docs/VALIDATION.md) para resultados y límites de esta 
   llenados contiene el historial completo. La tasa de acierto agrupa posiciones
   completamente cerradas, no cada venta parcial.
 - Memoria de precios limitada a 1,800 muestras por símbolo; disco de cotizaciones
-  limitado a 300,000 muestras o siete días, lo que ocurra primero. Los diagnósticos
+  limitado a 300,000 muestras o siete días, lo que ocurra primero. Los datos
+  de contexto usan 300 cierres en memoria por activo y una tabla acotada persistente
+  que conserva cuándo se conoció cada punto. Las velas futuras o adquiridas después
+  de una decisión no se adelantan en el replay. Los diagnósticos
   detallados retienen un día y hasta 100,000 cambios/muestras; equity, 30 días.
   Estas podas no borran llenados, órdenes, cierres ni sus totales de vida.
 - `logs/nory.log`: rotación de 2 MB × 4 archivos. Ningún dato local se versiona.

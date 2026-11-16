@@ -14,9 +14,12 @@
   ],
   "cadence_seconds": 0.5,
   "sample_seconds": 1,
+  "analysis_interval_seconds": 60,
+  "analysis_lookback": 240,
+  "analysis_history_limit": 300,
   "min_history": 120,
   "history_limit": 1800,
-  "max_gap_seconds": 8.0,
+  "max_gap_seconds": 120.0,
   "quote_max_age_seconds": 8.0,
   "fee_bps": {
     "coinbase": 60.0,

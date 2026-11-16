@@ -8,7 +8,12 @@ T = 1_790_000_000.0
 
 
 def config(**kwargs):
-    return replace(Config(), min_history=35, **kwargs)
+    changes = {
+        "min_history": 35,
+        "analysis_interval_seconds": kwargs.get("sample_seconds", 1),
+        "analysis_lookback": 120,
+    }
+    return replace(Config(), **{**changes, **kwargs})
 
 
 def quote(t=0, mid=100.0, symbol="BTC-USD", provider="coinbase", qty=10000, **kwargs):

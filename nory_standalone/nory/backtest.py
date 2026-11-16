@@ -9,10 +9,11 @@ from .config import STRATEGIES
 from .core import ResearchCore
 from .evidence import trade_evidence
 from .models import Quote, iso
+from .history import PriceSample
 from .strategies import VERSION
 
 
-def replay(quotes, cfg, *, trade_start=None):
+def replay(quotes, cfg, *, trade_start=None, context=()):
     if not quotes:
         raise ValueError("Sin cotizaciones para reproducir")
     providers = {q.provider for q in quotes}
@@ -21,6 +22,11 @@ def replay(quotes, cfg, *, trade_start=None):
     provider = next(iter(providers))
     cfg = replace(cfg, providers=(provider,))
     core = ResearchCore(cfg)
+    context = sorted(
+        (p for p in context if p.provider == provider),
+        key=lambda p: (p.known_at, p.exchange_ts),
+    )
+    context_index = 0
     fills, closed, exposure = [], [], {s: [] for s in STRATEGIES}
     curves = {s: [] for s in STRATEGIES}
     begin = quotes[0].received_ts if trade_start is None else trade_start
@@ -31,6 +37,7 @@ def replay(quotes, cfg, *, trade_start=None):
     def step(moment):
         changed = core.step(moment, running=moment >= begin)
         new_fills, _, new_closed = core.drain_events()
+        core.analysis.events.clear()  # Replay has no persistence consumer for context events.
         fills.extend(new_fills)
         closed.extend(new_closed)
         if changed and moment >= begin:
@@ -53,6 +60,12 @@ def replay(quotes, cfg, *, trade_start=None):
             next_step = (
                 math.floor(q.received_ts / cfg.cadence_seconds) + 1
             ) * cfg.cadence_seconds
+        while (
+            context_index < len(context)
+            and context[context_index].known_at <= q.received_ts
+        ):
+            core.analysis.seed([context[context_index]], q.received_ts, record=False)
+            context_index += 1
         core.receive(q, q.received_ts)
     step(next_step)
     results = {}
@@ -77,6 +90,7 @@ def replay(quotes, cfg, *, trade_start=None):
             if exposure[s]
             else 0,
             "open_positions": len(a.positions),
+            "ready_evaluations": core.activity[(a.id, "READY_EVALUATED")],
             "evidence": trade_evidence([t["pnl"] for t in sc]),
             "curve": curves[s][-300:],
             "trades": sf[-200:],
@@ -84,7 +98,9 @@ def replay(quotes, cfg, *, trade_start=None):
     return results
 
 
-def validate(quotes, cfg, *, source="RECORDED_PUBLIC_WS", train_fraction=0.70):
+def validate(
+    quotes, cfg, *, source="RECORDED_PUBLIC_WS", train_fraction=0.70, context=()
+):
     if source not in (
         "RECORDED_PUBLIC_WS",
         "DECLARED_PUBLIC_CSV_UNVERIFIED",
@@ -94,6 +110,7 @@ def validate(quotes, cfg, *, source="RECORDED_PUBLIC_WS", train_fraction=0.70):
     if not 0.55 <= train_fraction <= 0.85:
         raise ValueError("Separación train/test inválida")
     quotes = list(quotes)
+    context = list(context)
     if not quotes or len({q.provider for q in quotes}) != 1:
         raise ValueError("Se necesita un único proveedor")
     if any(a.received_ts > b.received_ts for a, b in zip(quotes, quotes[1:])):
@@ -110,7 +127,11 @@ def validate(quotes, cfg, *, source="RECORDED_PUBLIC_WS", train_fraction=0.70):
     test_start = split_ts + embargo
     if quotes[-1].received_ts - test_start < cfg.min_history * cfg.sample_seconds / 2:
         raise ValueError("El periodo de prueba después del embargo es demasiado corto")
-    training = replay(training_quotes, cfg)
+    training = replay(training_quotes, cfg, context=context)
+    if not any(r["ready_evaluations"] for s, r in training.items() if s != "cash"):
+        raise ValueError(
+            "Contexto histórico insuficiente en entrenamiento: exporta también el contexto o registra al menos el horizonte mínimo de análisis. No se interpreta un calentamiento sin señales como un backtest válido."
+        )
     # Cash wins exact ties. Selection reads ONLY training results.
     selected = max(
         STRATEGIES,
@@ -120,7 +141,7 @@ def validate(quotes, cfg, *, source="RECORDED_PUBLIC_WS", train_fraction=0.70):
             s == "cash",
         ),
     )
-    holdout = replay(quotes, cfg, trade_start=test_start)
+    holdout = replay(quotes, cfg, trade_start=test_start, context=context)
     btc = [q for q in quotes if q.symbol == "BTC-USD" and q.received_ts >= test_start]
     benchmark = None
     if len(btc) >= 2:
@@ -140,6 +161,7 @@ def validate(quotes, cfg, *, source="RECORDED_PUBLIC_WS", train_fraction=0.70):
         "embargo_seconds": embargo,
         "observed_intervals": len(moments),
         "quotes": len(quotes),
+        "context_points": len(context),
         "selected_from_training": selected,
         "training": {
             s: {k: v for k, v in r.items() if k not in ("curve", "trades")}
@@ -153,10 +175,19 @@ def validate(quotes, cfg, *, source="RECORDED_PUBLIC_WS", train_fraction=0.70):
             "Quotes de nivel 1 muestreadas; sin cola real, profundidad completa ni garantía de ejecución.",
             "La cartera de prueba comienza en efectivo; usa historial pasado para calentar indicadores sin heredar posiciones.",
             "Benchmark BTC al 100 %: exposición y riesgo diferentes. No hay promoción automática a producción.",
+            "El contexto público solo se incorpora a partir de known_at; las velas de contexto no se utilizan como fills.",
         ],
     }
     json.dumps(report, allow_nan=False)
     return report
+
+
+def read_context(path):
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rows = payload["points"]
+    if not isinstance(rows, list) or len(rows) > 300_000:
+        raise ValueError("Archivo de contexto inválido o demasiado grande")
+    return [PriceSample(**row) for row in rows]
 
 
 def read_csv(path):

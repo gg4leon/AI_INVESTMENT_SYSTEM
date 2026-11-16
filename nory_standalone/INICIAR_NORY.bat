@@ -9,7 +9,10 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
   )
-  ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+)
+".venv\Scripts\python.exe" -c "from importlib.metadata import version; from pathlib import Path; assert all(version(n)==v for n,v in (line.split('==') for line in Path('requirements.txt').read_text().splitlines() if line and not line.startswith('#')))" >nul 2>&1
+if errorlevel 1 (
+  ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.txt
   if errorlevel 1 (
     echo No se pudieron instalar las dependencias. Revisa la conexion y ejecuta el comando indicado en README.md.
     pause

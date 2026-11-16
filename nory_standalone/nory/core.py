@@ -7,6 +7,7 @@ import hashlib
 
 from .config import STRATEGIES
 from .models import Account, Order, Position
+from .history import AnalysisHistory
 from .strategies import Signal, aligned_correlation, evaluate
 
 
@@ -34,6 +35,8 @@ class ResearchCore:
         self.events = []
         self.order_events = {}
         self.closed = []
+        self.analysis = AnalysisHistory(cfg)
+        self.activity = Counter()
 
     def receive(self, quote, now):
         if (
@@ -56,9 +59,26 @@ class ResearchCore:
         )
         instant = quote.mid / old.mid - 1 if old else 0
         trailing = quote.mid / base.mid - 1 if base else 0
-        if min(instant, trailing) <= -self.cfg.shock_fraction:
+        context = self.analysis.closed_for(
+            quote.provider, quote.symbol, quote.exchange_ts, known_at=quote.received_ts
+        )
+        context_move = (
+            quote.mid / context[-1].mid - 1
+            if context
+            and quote.exchange_ts - context[-1].exchange_ts
+            <= self.cfg.analysis_interval_seconds * 2
+            else 0
+        )
+        if min(instant, trailing, context_move) <= -self.cfg.shock_fraction:
             self.freeze_until[key] = now + self.cfg.shock_cooldown_seconds
             self.metrics["unexplained_shocks"] += 1
+        if (
+            quote.symbol == "BTC-USD"
+            and context_move <= -self.cfg.market_shock_fraction
+        ):
+            self.freeze_until[(quote.provider, "__market__")] = (
+                now + self.cfg.shock_cooldown_seconds
+            )
         if key in self.dirty:
             self.metrics["coalesced_updates"] += 1
         self.latest[key] = self.dirty[key] = quote
@@ -69,6 +89,7 @@ class ResearchCore:
         return list(self.history.get((provider, symbol), ()))
 
     def _sample(self, q):
+        self.analysis.record(q)
         key = (q.provider, q.symbol)
         history = self.history.setdefault(key, deque(maxlen=self.cfg.history_limit))
         if (
@@ -205,9 +226,9 @@ class ResearchCore:
         corr_exposure = asset_gross
         for symbol in sorted(occupied - {q.symbol}):
             rho = aligned_correlation(
-                self.history_for(account.provider, q.symbol),
-                self.history_for(account.provider, symbol),
-                self.cfg.sample_seconds,
+                self.analysis.closed_for(account.provider, q.symbol, now),
+                self.analysis.closed_for(account.provider, symbol, now),
+                self.cfg.analysis_interval_seconds,
                 self.cfg.min_correlation_samples,
             )
             if rho is None:
@@ -298,7 +319,7 @@ class ResearchCore:
             # Recheck the actual signal, costs and risks at the future fill quote.
             signal = evaluate(
                 account.strategy,
-                self.history_for(account.provider, q.symbol),
+                self.analysis.points_for(q),
                 cfg,
                 account.provider,
             )
@@ -414,7 +435,7 @@ class ResearchCore:
                     self.fill(account, q, now)
                 self.mark(account)
             for q in venue_quotes:
-                history = self.history_for(account.provider, q.symbol)
+                history = self.analysis.points_for(q)
                 signal = evaluate(
                     account.strategy,
                     history,
@@ -511,6 +532,13 @@ class ResearchCore:
                     "observed_at": now,
                     **signal.as_dict(),
                 }
+                self.activity[(account.id, signal.action)] += 1
+                if running:
+                    self.activity[(account.id, "EVALUATED")] += 1
+                    if signal.features.get("analysis_span_seconds", 0) > 0:
+                        self.activity[(account.id, "READY_EVALUATED")] += 1
+                    if signal.checks.get("margen_sobre_costes") is False:
+                        self.activity[(account.id, "COST_FILTER")] += 1
         if fresh:
             self.metrics["cycles_with_new_quotes"] += 1
         return fresh

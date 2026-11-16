@@ -34,6 +34,7 @@ Kraken WS ──┘   por proveedor       └─ cotización posterior ─ fills
 | `nory/config.py` | Parámetros validados, universo, versionado por huella. |
 | `nory/models.py` | Cotizaciones, órdenes, posiciones y carteras tipadas. |
 | `nory/feeds.py` | Subscripción pública, TLS, parseo, salud y reconexión. |
+| `nory/history.py` | Cierres públicos completados, caché por minuto, recuperación de huecos y tiempos de adquisición. No ejecuta órdenes. |
 | `nory/strategies.py` | Indicadores pasados, reglas explicadas, correlaciones alineadas. |
 | `nory/core.py` | Motor determinista, riesgo, reservas, ejecución y contabilidad. |
 | `nory/storage.py` | WAL, atomicidad, libro, agregados, retención y consultas. |
@@ -53,7 +54,7 @@ Kraken WS ──┘   por proveedor       └─ cotización posterior ─ fills
 5. Una transacción guarda juntos cuenta, órdenes, fills, cierres y agregados.
    Un fallo hace rollback; el coordinador deja de decidir y muestra un error.
 6. Reiniciar no reactiva trading: posiciones preservadas, pendientes canceladas,
-   historial técnico calentado de nuevo y bloqueos persistidos.
+   contexto técnico recuperado de caché y bloqueos persistidos.
 7. Datos vencidos no compran ni llenan órdenes. Una posición sin marca fresca
    bloquea nuevas entradas; su valoración se etiqueta con última cotización conocida.
 8. El replay recibe eventos en orden de recepción y solo utiliza el prefijo observado.
@@ -69,8 +70,21 @@ no incluyen una futura salida hasta que ocurra; equity sí descuenta su coste es
 El buffer mantiene solo el mensaje más reciente entre evaluaciones; las anomalías
 de caída se examinan también al recibir mensajes anteriores al agrupamiento. La
 simulación no ve cada posible ejecución intraintervalo ni reconstruye el libro.
-Las decisiones se basan en muestras de intervalos distintos; baja actividad aumenta
-la duración efectiva de una ventana o reinicia el calentamiento si hay huecos grandes.
+Las decisiones usan cierres por minuto y el precio actual, con una ventana temporal
+acotada de hasta cuatro horas. Se cargan velas cerradas públicas en REST al iniciar
+o recuperar huecos; las muestras bid/ask de ejecución permanecen separadas. Los
+huecos no borran el contexto de análisis. Cobertura inferior al 80 % o un último
+cierre demasiado antiguo bloquean entradas y solicitan recuperación limitada.
+
+Cada cierre tiene `exchange_ts` (fin del intervalo) y `known_at` (cuándo la app
+lo adquirió). El replay aplica el evento únicamente al llegar `known_at`; nunca
+rellena ejecuciones con OHLC. Los puntos medios observados en vivo se etiquetan
+`WS_SAMPLED_MID`, distintos de los cierres de trades `PUBLIC_CANDLE`. No hay mezcla
+de exchanges ni de monedas; el coste del spread usa el libro actual.
+
+La versión 2.1 no modifica un libro 2.0: selecciona una base nueva con identificador
+de reglas/configuración y muestra un aviso. Las bases anteriores se abren solo
+para leer su versión durante esa selección y permanecen intactas.
 
 Todo el universo inicial pertenece a una categoría, cripto spot. El límite de esa
 categoría es también un límite agregado de mercado. Un futuro proveedor de acciones

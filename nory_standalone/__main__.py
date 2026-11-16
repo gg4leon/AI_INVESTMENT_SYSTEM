@@ -74,6 +74,11 @@ def main(argv=None):
     )
     parser.add_argument("--csv", type=Path)
     parser.add_argument(
+        "--context",
+        type=Path,
+        help="Contexto histórico exportado con sus fechas de adquisición",
+    )
+    parser.add_argument(
         "--source", choices=("DECLARED_PUBLIC_CSV_UNVERIFIED", "SYNTHETIC_TEST")
     )
     parser.add_argument("--output", type=Path)
@@ -92,13 +97,18 @@ def main(argv=None):
         if args.command == "probe":
             return asyncio.run(probe(cfg, args.seconds, args.provider, args.output))
         if args.command == "backtest":
-            from .nory.backtest import read_csv, validate
+            from .nory.backtest import read_csv, read_context, validate
 
             if not args.csv or not args.source:
                 parser.error(
                     "backtest requiere --csv y --source para declarar la procedencia"
                 )
-            result = validate(read_csv(args.csv), cfg, source=args.source)
+            result = validate(
+                read_csv(args.csv),
+                cfg,
+                source=args.source,
+                context=read_context(args.context) if args.context else (),
+            )
             text = json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False)
             if args.output:
                 args.output.write_text(text + "\n", encoding="utf-8")

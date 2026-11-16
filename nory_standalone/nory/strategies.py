@@ -23,9 +23,9 @@ class Signal:
         return asdict(self)
 
 
-def indicators(quotes):
+def indicators(quotes, lookback=240):
     prices = [q.mid for q in quotes]
-    recent = prices[-120:]
+    recent = prices[-lookback:]
     returns = [b / a - 1 for a, b in zip(recent, recent[1:])]
     deltas = [b - a for a, b in zip(prices[-15:], prices[-14:])]
     gain = mean([max(d, 0) for d in deltas])
@@ -38,13 +38,14 @@ def indicators(quotes):
         "mean": avg,
         "volatility": pstdev(returns) if len(returns) > 1 else 0.0,
         "momentum_bps": (prices[-1] / prices[-30] - 1) * 10_000,
-        "medium_bps": (prices[-1] / prices[-min(len(prices), 120)] - 1) * 10_000,
+        "medium_bps": (prices[-1] / prices[-min(len(prices), lookback)] - 1) * 10_000,
         "rsi": rsi,
         "z_score": (prices[-1] - avg) / sigma if sigma else 0.0,
         "range_bps": (max(recent) / min(recent) - 1) * 10_000,
         "last_return": prices[-1] / prices[-2] - 1,
         "prior_high": max(prices[-61:-1]),
         "prior_low": min(prices[-61:-1]),
+        "analysis_span_seconds": quotes[-1].exchange_ts - quotes[0].exchange_ts,
     }
 
 
@@ -60,10 +61,30 @@ def evaluate(strategy, quotes, cfg, provider, *, in_position=False):
         return Signal(
             "WARMUP",
             0,
-            f"Preparando historial: {len(quotes)}/{cfg.min_history} muestras auténticas en intervalos distintos.",
+            f"Preparando contexto: {len(quotes)}/{cfg.min_history} observaciones de {cfg.analysis_interval_seconds} s. El histórico público se carga al iniciar; los precios en vivo siguen separados.",
         )
     q = quotes[-1]
-    f = indicators(quotes)
+    if q.exchange_ts - quotes[-2].exchange_ts > cfg.analysis_interval_seconds * 2:
+        return Signal(
+            "WARMUP",
+            0,
+            "Falta contexto reciente: se está recuperando el hueco de datos antes de evaluar compras.",
+        )
+    span = q.exchange_ts - quotes[0].exchange_ts
+    expected = max(
+        1,
+        min(
+            cfg.analysis_lookback + 1,
+            math.ceil(span / cfg.analysis_interval_seconds) + 1,
+        ),
+    )
+    if len(quotes) / expected < 0.8:
+        return Signal(
+            "WARMUP",
+            0,
+            "El historial tiene demasiados intervalos sin observar. Esperando contexto público suficiente.",
+        )
+    f = indicators(quotes, cfg.analysis_lookback)
     cost = 2 * (cfg.fee_bps[provider] + cfg.slippage_bps) + q.spread_bps
     common = {
         "spread_aceptable": q.spread_bps <= cfg.max_spread_bps,
@@ -132,7 +153,7 @@ def evaluate(strategy, quotes, cfg, provider, *, in_position=False):
         "BUY"
         if not failed
         else "BLOCK_COSTS"
-        if failed == ["margen_sobre_costes"]
+        if not checks["margen_sobre_costes"]
         else "WAIT"
     )
     reason = (
@@ -145,7 +166,18 @@ def evaluate(strategy, quotes, cfg, provider, *, in_position=False):
         )
     )
     return Signal(
-        action, score, reason, checks, {**f, "round_trip_cost_bps": cost}, headroom
+        action,
+        score,
+        reason,
+        checks,
+        {
+            **f,
+            "round_trip_cost_bps": cost,
+            "entry_threshold_bps": cost + cfg.min_net_edge_bps,
+            "edge_gap_bps": max(0, cost + cfg.min_net_edge_bps - headroom),
+            "analysis_interval_seconds": cfg.analysis_interval_seconds,
+        },
+        headroom,
     )
 
 

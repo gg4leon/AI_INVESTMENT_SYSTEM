@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 STRATEGIES = ("trend", "mean_reversion", "momentum", "breakout", "cash")
-RULES_VERSION = "2.0.0-fixed-rules"
+RULES_VERSION = "2.1.0-minute-context"
 LABELS = {
     "trend": "Seguimiento de tendencia",
     "mean_reversion": "Reversión a la media",
@@ -31,9 +31,12 @@ class Config:
     providers: tuple[str, ...] = ("coinbase", "kraken")
     cadence_seconds: float = 0.5
     sample_seconds: int = 1
+    analysis_interval_seconds: int = 60
+    analysis_lookback: int = 240
+    analysis_history_limit: int = 300
     min_history: int = 120
     history_limit: int = 1800
-    max_gap_seconds: float = 8.0
+    max_gap_seconds: float = 120.0
     quote_max_age_seconds: float = 8.0
     fee_bps: dict[str, float] = field(
         default_factory=lambda: {"coinbase": 60.0, "kraken": 40.0}
@@ -77,6 +80,9 @@ class Config:
                 raise ValueError(f"Parámetro no numérico/finito: {name}")
         integers = (
             "sample_seconds",
+            "analysis_interval_seconds",
+            "analysis_lookback",
+            "analysis_history_limit",
             "min_history",
             "history_limit",
             "max_positions",
@@ -95,6 +101,11 @@ class Config:
         if not (
             1 <= self.sample_seconds <= 60
             and 35 <= self.min_history <= self.history_limit <= 5000
+            and self.analysis_interval_seconds in (1, 2, 5, 8, 10, 15, 30, 60, 300)
+            and self.min_history
+            <= self.analysis_lookback
+            <= self.analysis_history_limit
+            <= 5000
         ):
             raise ValueError("Historial inválido")
         if (

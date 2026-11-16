@@ -1,5 +1,8 @@
 # Validación de la entrega
 
+Este documento registra la entrega inicial del motor 2.0. La corrección de
+horizontes y logo oscuro del motor 2.1 se valida en [CONTEXT_FIX.md](CONTEXT_FIX.md).
+
 Fecha: **16 de noviembre de 2026**. Entorno local de comprobación: Linux cloud,
 Python 3.12.14 y Chromium real en modo headless. No se usó dinero real.
 
