@@ -1,4 +1,4 @@
-# AIS v0.7 — Investment Terminal con Nory
+# AIS v0.8 — Investment Terminal con Nory MicroLab
 
 Plataforma educativa de investigación, gráficos, noticias y operaciones **100% simuladas**. **No conecta a brókeres, no ejecuta compras/ventas reales y no requiere depositar dinero.** El logotipo de AIS conserva el diseño original aportado por su creador, vectorizado para su uso en la interfaz.
 
@@ -187,3 +187,98 @@ Las decisiones y límites se comprueban con
 Este módulo no es una estrategia validada: faltan pruebas fuera de muestra,
 benchmark comparable, pruebas prospectivas, monitorización de errores
 y controles de seguridad antes de siquiera evaluar una integración real.
+
+---
+
+## Nory v0.8 — MicroLab de operaciones pequeñas (~1 segundo)
+
+**IMPORTANTE:** es una simulación local con PRECIOS INVENTADOS; no usa velas por
+segundo de una bolsa, datos de última hora, un bróker ni ejecuciones reales.
+Se ha añadido como módulo experimental al resto de AIS y Nory v0.7. El logo
+original del usuario y la paleta **rojo intenso, negro y blanco** se conservan.
+
+### Qué aporta al proyecto
+
+- Un ciclo por **segundo virtual** con datos OHLC artificiales, que puede
+  ejecutarse aproximadamente cada **1 segundo de reloj** en tu ThinkPad.
+  Los tiempos de cálculo y Windows pueden introducir retrasos.
+- Un solo capital de **10,000 USD totalmente ficticios** compartido entre
+  distintos activos cotizados en USD. Hasta 20 instrumentos de la lista
+  permitida, **6 posiciones a la vez** y un límite de **55 % de exposición**.
+- Estrategia **experimental de reversión a la media**: trata de detectar
+  precios relativamente por debajo de su promedio reciente, exige un
+  rebote y calcula si la diferencia prevista podría superar los gastos.
+  **Eso NO identifica valor fundamental ni asegura que el precio subirá.**
+- Objetivo de salida **neto de costes** de 18 puntos básicos (0.18 %) y
+  pérdida de salida de 65 puntos básicos (0.65 %). Se incluyen **5 bps de
+  comisión por lado, 4 bps de spread total y 2 bps de deslizamiento por lado**.
+  Son SUPUESTOS artificiales, no cotizaciones ni tarifas de una bolsa.
+- El motor crea una orden **PENDIENTE** al observar una oportunidad y
+  no la contabiliza hasta el **siguiente segundo virtual**. Si aparece
+  una caída anómala o choque de mercado, una compra pendiente puede cancelarse.
+  Incluso una venta solicitada al alcanzar un beneficio puede perder dinero
+  antes de su llenado en el siguiente tick.
+- Detectores técnicos de caída anormal, volatilidad excesiva,
+  concentración y movimientos simultáneos del índice de referencia
+  sintético (SPY). Se niega a inferir la **causa real** de una caída
+  solo a partir del precio: la etiqueta es «causa no verificada».
+- Bloqueo de nuevas operaciones cuando el drawdown ficticio alcanza el
+  7 %, límites de posiciones y frecuencia, periodo de espera entre
+  operaciones, auditoría de señales y gastos.
+- Pruebas de los escenarios: `mixed`, `calm`, `selloff` y `shock`.
+  Son simulaciones deterministas para probar riesgo, **no resultados
+  que puedan trasladarse a mercados reales**.
+
+### Cómo iniciarlo
+
+Con el proyecto actualizado:
+
+```powershell
+git pull origin main
+python -m pip install -r requirements.txt
+python -m streamlit run streamlit_app.py
+```
+
+En el panel **⚡ NORY MICRO LAB v0.8**, selecciona escenario y símbolos.
+Deja SPY como referencia de mercado. Pulsa **Activar simulador**,
+después **Simular 1 segundo** o **Simular 30 segundos**. La segunda
+opción calcula **30 segundos virtuales sin esperar 30 segundos reales**.
+
+Para una simulación que avance aproximadamente un paso por segundo de
+reloj, en otra terminal, mientras Nory MicroLab esté activado:
+
+```powershell
+python -m nory.micro_worker --demo --steps 300 --interval-seconds 1 --scenario mixed --symbols SPY QQQ AAPL MSFT NVDA BTC-USD ETH-USD
+```
+
+El proceso se detiene al terminar 300 pasos, al pulsar `Ctrl+C`, al
+pausarlo en la app o al activar el bloqueo de pérdidas. Para ejecución
+continua en tu propia PC sustituye `--steps 300` por `--loop`.
+La laptop tiene que estar encendida, sin suspensión, y la terminal abierta.
+
+Si quieres comparar escenarios o cambiar universo/política debes crear
+una sesión nueva **después de respaldar** el historial: el motor
+intencionadamente fija estos parámetros en la base local
+`data/nory_micro.sqlite3` para que no mezcle experimentos. No borres
+la base sin respaldo ni mientras el worker esté corriendo.
+
+### Lo que todavía NO puede hacer
+
+Un feed de **datos diarios** como el de Yahoo de AIS v0.7 NO es
+adecuado para tomar decisiones cada segundo. Ni los RSS ni rumores
+son un sustituto de cotizaciones de bid/ask, liquidez, noticias
+verificadas y marca temporal. Para hacer paper trading prospectivo
+con datos reales de segundos haría falta un proveedor autorizado y
+latencia medible, control de horarios de bolsas, acumulación de
+órdenes, tasas y spreads dinámicos, detección independiente de
+eventos, validación fuera de muestra y controles mucho más severos.
+Sin ellos, una ganancia en MicroLab **no acredita una oportunidad
+real ni capacidad de enriquecimiento rápido**.
+
+No hay cuenta bancaria, credenciales de inversión, operador de bolsa,
+dinero real ni API de órdenes. Los chismes y relaciones de celebridades
+siguen como información de contexto en la interfaz, sin afectar decisiones.
+
+Nuevos archivos:
+`nory/micro_feed.py`, `nory/micro_lab.py`,
+`nory/micro_worker.py`, `tests/test_micro_lab.py`.
