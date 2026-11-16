@@ -303,7 +303,8 @@ with st.expander("● NORY LIVE LAB v0.9 · cotizaciones REALES, cartera fictici
         if st.button(
             "▶ Conectar precios reales · SOLO PAPER",
             key="kraken_start",type="primary",
-            disabled=live_status["running"] or "BTC-USD" not in live_symbols,
+            disabled=(live_status["running"] or "BTC-USD" not in live_symbols
+                      or _get_micro_auto_runner().status()["running"]),
             use_container_width=True,
         ):
             try:
@@ -311,6 +312,8 @@ with st.expander("● NORY LIVE LAB v0.9 · cotizaciones REALES, cartera fictici
                 st.rerun()
             except (ValueError,OSError,RuntimeError) as exc:
                 st.error(f"No se pudo conectar: {exc}")
+    if _get_micro_auto_runner().status()["running"]:
+        st.caption("Detén primero la simulación automática sintética para activar datos reales.")
     with ctrl2:
         if st.button(
             "■ Desconectar y detener",
@@ -464,7 +467,9 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
             if st.button(
                 "▶ Iniciar automático (1 s)", key="micro_auto_start",
                 type="primary", use_container_width=True,
-                disabled=micro_state["halted"] or not micro_symbols or "SPY" not in micro_symbols,
+                disabled=(micro_state["halted"] or not micro_symbols
+                          or "SPY" not in micro_symbols
+                          or _get_live_kraken_runner().status()["running"]),
             ):
                 try:
                     auto_runner.start(
