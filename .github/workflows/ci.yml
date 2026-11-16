@@ -36,4 +36,4 @@ jobs:
 
       - name: Kraken public connectivity probe (optional live network)
         continue-on-error: true
-        run: python -m nory.kraken_probe --seconds 20 --symbols BTC-USD ETH-USD
+        run: python -m nory.kraken_probe --seconds 25 --symbols BTC-USD ETH-USD SOL-USD XRP-USD ADA-USD
