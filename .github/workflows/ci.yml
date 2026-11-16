@@ -33,3 +33,7 @@ jobs:
         run: python -m nory.worker --demo --once --symbols SPY AAPL MSFT BTC-USD
       - name: MicroLab synthetic-second worker smoke test
         run: python -m nory.micro_worker --demo --steps 1 --interval-seconds 0.1 --symbols SPY AAPL NVDA
+
+      - name: Kraken public connectivity probe (optional live network)
+        continue-on-error: true
+        run: python -m nory.kraken_probe --seconds 20 --symbols BTC-USD ETH-USD
