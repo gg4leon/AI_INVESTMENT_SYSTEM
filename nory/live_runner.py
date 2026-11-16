@@ -97,6 +97,13 @@ class LivePaperRunner:
                             self._status="CIRCUIT_HALTED"
                             self._last_processed=result
                         break
+                    elif result["status"]=="STALE_POSITION_QUOTES":
+                        with self._lock:
+                            self._status="STOPPED_STALE_POSITION"
+                            self._error=("Missing fresh quotes for an open paper position: "
+                                         + ", ".join(result.get("missing",[])))
+                            self._last_processed=result
+                        break
                     elif result["status"]=="PAUSED":
                         with self._lock:
                             self._status="PAUSED"
