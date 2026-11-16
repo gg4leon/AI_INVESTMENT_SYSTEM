@@ -338,8 +338,9 @@ with st.expander("📰 Noticias y cultura mediática · investigación", expande
         articles = st.session_state.get(key, [])
         if articles:
             st.subheader(title)
-            for article in articles:
-                st.markdown(f'**[{article["title"]}]({article["url"]})**')
+            for i, article in enumerate(articles):
+                st.text(article["title"])
+                st.link_button("Abrir titular en su fuente", url=article["url"])
                 st.caption(
                     f'{article["publisher"]} · {article["published"]} · '
                     + ("MENCIONA RUMOR, NO VERIFICADO" if article["unverified"]
