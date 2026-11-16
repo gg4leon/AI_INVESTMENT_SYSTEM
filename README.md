@@ -1,4 +1,168 @@
-# AIS v0.9 — Investment Terminal · Nory con Kraken en tiempo real
+# AIS v1.0 — Nory Intelligence & Performance
+
+AIS v1.0 mantiene **exactamente la identidad AIS original** con su logo rojo,
+interfaz negro/rojo intenso/blanco y todos los módulos de versiones anteriores.
+
+## ¿Por qué Nory podía pausar o no realizar operaciones?
+
+No era necesariamente un fallo. Kraken proporciona actualizaciones al cambiar
+el mejor bid/ask y algunos productos pueden permanecer inactivos. Además, una
+estrategia que vende tras una subida muy pequeña puede perder dinero después
+de **comisión por compra y por venta, spread real y slippage hipotético**. Nory
+v0.9 exigía una desviación bastante grande del promedio y con frecuencia
+prefería no entrar. AIS v1.0 ahora **explica esos bloqueos** en vez de ocultarlos.
+
+**No se ha eliminado ninguna condición de seguridad para fabricar ganancias.**
+No se garantiza que haya operaciones en cada segundo: los mercados no
+proporcionan una oportunidad rentable por segundo de manera confiable.
+
+## Nuevo: Coinbase Exchange + Kraken en paralelo como opciones
+
+AIS ahora permite **elegir** entre dos fuentes públicas y confiables de
+precios reales. Las conexiones no hacen trading: solo se suscriben a datos
+distribuidos por los exchanges. No hacen scraping de páginas ni usan rumores.
+
+| Fuente | Mercado | Pares en interfaz | Taker simulado | Base local |
+|---|---|---:|---:|---|
+| Coinbase Exchange | Criptomonedas USD spot | Hasta 15, dependiendo del producto | 60 bps/lado | `data/nory_coinbase_live_paper.sqlite3` |
+| Kraken | Criptomonedas USD spot | Hasta 5 | 80 bps/lado | `data/nory_live_paper.sqlite3` |
+
+**Las tarifas son supuestos para comparar investigación paper.** Coinbase
+Exchange publica para volumen mensual de 0–10 mil USD 60 bps taker y 40 bps
+maker; no equivale necesariamente al nivel real o precio aplicable a un
+usuario de la aplicación Coinbase. Se modela orden taker porque las
+simulaciones usan la cotización de oferta/demanda siguiente, nunca se
+presumen ejecuciones maker gratuitas o garantizadas. Kraken tiene otra
+tarifa supuesta ya usada en v0.9.
+
+La fuente real Coinbase llega por el WebSocket sin autenticación:
+`wss://ws-feed.exchange.coinbase.com`; `ticker` con cambios del mercado
+al ocurrir transacciones. Kraken conserva
+`wss://ws.kraken.com/v2`, canal `ticker`. El reloj del servidor,
+la actividad y la red determinan la frecuencia real de actualizaciones.
+No tenemos tick feed de acciones de todas las bolsas. **AAPL, NVDA, SPY
+y acciones de México siguen en análisis histórico Yahoo.**
+
+### Instalar v1.0 en tu Windows / VS Code
+
+Cierra la aplicación y procesos automáticos de versiones anteriores.
+Haz copia de tus bases locales si quieres conservar las pruebas; no borres
+los datos ni uses comandos Git que destruyan cambios personales.
+
+```powershell
+git status
+git pull origin main
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python -m streamlit run streamlit_app.py
+```
+
+Si `git status` indica cambios en archivos, revísalos y guárdalos antes
+del pull. Abre `http://127.0.0.1:8501`.
+
+Para comprobar cotizaciones públicas SIN ejecutar siquiera paper trading:
+
+```powershell
+python -m nory.coinbase_probe --seconds 25 --symbols BTC-USD ETH-USD SOL-USD
+```
+
+Cuando llegan cotizaciones válidas mostrará `PASS` y muestras bid/ask
+auténticas. En otro caso el programa imprime un diagnóstico: comprueba
+el firewall, acceso a WebSockets, el par y la red. No se sustituirán
+precios de mercado por datos ficticios si la conexión falla.
+
+### Cómo usar la nueva interfaz
+
+AIS ahora tiene una barra lateral que organiza siete secciones:
+
+1. **Inicio:** estado de cada cartera paper, explicación y accesos rápidos.
+2. **Mercado real:** escoger Coinbase o Kraken, iniciar o detener datos
+   públicos, leer bids/asks, saldos paper, órdenes, señales y motivos.
+3. **Rendimiento:** centro de desempeño Nory con capital, ganancias/pérdidas,
+   comisiones, tasa de acierto de eventos de venta, drawdown, exposición,
+   razones de bloqueos, gráfica y descarga CSV.
+4. **Simulación rápida:** MicroLab v0.8 sintético y automático, sin pérdida
+   de funciones ni mezcla de cuentas.
+5. **Nory multiactivo:** investigación v0.7 con capital ficticio compartido,
+   simulación de velas y órdenes al día siguiente.
+6. **Investigación:** catálogo de mercados, noticias, marcas, celebridades
+   y advertencias sobre rumores no verificados.
+7. **Histórico y herramientas:** backtesting, análisis técnico, RSI/MACD,
+   historial, salidas CSV/JSON y el operador educativo original.
+
+La configuración de backtest histórico está en un desplegable de la
+barra lateral para no llenar la interfaz de campos que no estás usando.
+
+### ¿Por qué no aparecen compras paper?
+
+En Mercado real, entra a **«Por qué opera (o no)»**:
+- `WARMUP`: aún no hay al menos 45 actualizaciones reales por activo.
+- `WAIT` / `WAIT_FALLING`: el precio no cumple condiciones de rebote,
+  o está cayendo sin confirmación.
+- `BLOCK_UNKNOWN_DROP`: caída anormal sin explicación verificada.
+- `BLOCK_COSTS`: la oportunidad estimada no supera comisiones,
+  spread y deslizamiento en el modelo.
+- `BLOCK_SPREAD`: demasiada diferencia entre compra y venta.
+- `BLOCK_ORDER_RATE`, `BLOCK_MAX_POSITIONS`: límite de seguridad.
+
+En Coinbase puedes revisar hasta **15 activos** y mantener hasta
+**8 posiciones paper** con un máximo de 40 % de exposición agregada.
+El motor examina una muestra aproximadamente cada **0.5 s**, pero solo
+actúa ante **precios nuevos y frescos** recibidos de verdad. Una
+cotización no garantiza una ejecución obtenible en un exchange real.
+El modo inicia pausado; necesitas pulsar Conectar. El interruptor de
+pérdidas o la pérdida de datos relevantes detienen el paper trading.
+La app NO ejecuta acciones reales, no acepta claves privadas ni fondos.
+
+### Nuevo laboratorio: validación histórica fuera de muestra
+
+En **Rendimiento → Laboratorio histórico**, selecciona un activo y
+ejecuta la validación voluntariamente con Yahoo Finance. El motor
+usa **70 % de las velas iniciales para elegir** entre tres reglas
+preestablecidas (tendencia SMA, reversión a media y efectivo). Luego
+evalúa la regla elegida en **30 % de velas nunca usadas en la elección**.
+
+- Señales basadas solo en el **cierre de la vela anterior**.
+- Ejecución hipotética en la **siguiente apertura**.
+- 30 % de capital simulado por posición para reglas activas.
+- Costes por lado configurables y benchmark de compra y mantenimiento
+  con costes, **pero a 100 % de exposición**, por lo que no equivale
+  al mismo riesgo de las reglas activas.
+- Gráfica, tabla y exportación de operaciones, incluyendo retornos
+  negativos si los datos los producen.
+
+Un solo split de entrenamiento/prueba NO convierte una estrategia en
+rentable o científicamente validada. Seguiremos necesitando múltiples
+periodos walk-forward, comparaciones ajustadas por riesgo, datos
+de distinta fuente y periodos prospectivos sin sesgo de selección.
+
+### Privacidad y límites
+
+**AIS no puede mover dinero real, ni operar mediante exchanges o brokers.**
+Los precios de Coinbase/Kraken son públicos; todas las cantidades,
+órdenes, saldos y ganancias de Nory son ficticios. El modelo no conoce
+la causa de una caída por sí solo: las noticias RSS son contexto que
+requiere verificación y **nunca provocan órdenes automáticas**.
+Es posible que una buena configuración produzca **cero compras**.
+
+Las bases están almacenadas localmente e ignoradas por Git; cada
+fuente tiene su propio historial y no se suman resultados de
+escenarios sintéticos con cotizaciones reales. Las tasas de acierto
+de ventas parciales y comparaciones con BTC son indicativas.
+
+Documentación oficial:
+- https://docs.cdp.coinbase.com/exchange/websocket-feed/overview
+- https://docs.cdp.coinbase.com/exchange/websocket-feed/channels
+- https://help.coinbase.com/en/exchange/trading-and-funding/exchange-fees
+- https://docs.kraken.com/api/docs/websocket-v2/ticker
+
+Nuevos módulos: `nory/coinbase_public.py`,
+`nory/coinbase_probe.py`, `nory/performance.py`,
+`nory/validation.py`, `app/performance_ui.py`.
+
+---
+
+## Archivo técnico: Nory v0.9 · Kraken en tiempo real
 
 ## Nory v0.9 — DATOS REALES por Kraken, operaciones 100% ficticias
 
