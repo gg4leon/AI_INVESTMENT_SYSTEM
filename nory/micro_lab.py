@@ -130,6 +130,11 @@ def _conn(db_path):
       realized_pnl REAL NOT NULL, reason TEXT NOT NULL,
       cash_after REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS micro_pending(
+      symbol TEXT PRIMARY KEY, side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),
+      decision_tick INTEGER NOT NULL, target_weight REAL NOT NULL,
+      priority REAL NOT NULL, reason TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS micro_decisions(
       tick INTEGER NOT NULL, symbol TEXT NOT NULL,
       decision TEXT NOT NULL, score REAL,
@@ -275,12 +280,96 @@ def process_second(
             )
             return cash + liquid,liquid
         before_equity, _ = snapshot()
-        # Exits have priority over entries; no simultaneous buy/sell of one symbol.
+        # Resolve decisions from PRIOR synthetic seconds at the NEXT mid.
+        # The current price was not known at decision time.
+        pending=[dict(x) for x in con.execute(
+            "SELECT * FROM micro_pending ORDER BY "
+            "CASE side WHEN 'SELL' THEN 0 ELSE 1 END,priority DESC,symbol"
+        )]
+        outcomes={}
+        recent_count=con.execute(
+            "SELECT COUNT(*) FROM micro_trades WHERE tick>=?",(seq-59,)
+        ).fetchone()[0]
+        for order in pending:
+            sym=order["symbol"]
+            if order["decision_tick"]>=seq:
+                continue
+            pos=positions.get(sym)
+            if order["side"]=="SELL" and pos:
+                bid=_costs(cfg,mids[sym],"SELL")
+                fee=pos["qty"]*bid*cfg.fee_bps/10000
+                proceeds=pos["qty"]*bid-fee
+                pnl=proceeds-pos["basis"]
+                cash+=proceeds
+                con.execute(
+                    "INSERT INTO micro_trades(tick,symbol,side,qty,mid,fill,fee,realized_pnl,reason,cash_after)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (seq,sym,"SELL",pos["qty"],mids[sym],bid,fee,pnl,order["reason"],cash),
+                )
+                con.execute("DELETE FROM micro_positions WHERE symbol=?",(sym,))
+                events.append({"symbol":sym,"event":"SELL_SIM","reason":order["reason"],
+                               "net_pnl":round(pnl,4),"decision_tick":order["decision_tick"],
+                               "fill_tick":seq})
+                outcomes[sym]="EXIT_FILLED"
+                del positions[sym]
+                recent_count+=1
+            elif order["side"]=="BUY" and not pos:
+                reason=None
+                if tick.events[sym]!="NO_CONFIRMED_NEWS_CONTEXT":
+                    reason="UNKNOWN_EVENT_AT_FILL"
+                elif market_return<=cfg.systemic_drop_threshold:
+                    reason="MARKET_STRESS_AT_FILL"
+                elif prior[sym] and mids[sym]/prior[sym][-1]-1<=cfg.shock_return_threshold:
+                    reason="PRICE_SHOCK_AT_FILL"
+                elif recent_count>=cfg.max_trades_per_60_ticks:
+                    reason="TRADE_RATE_LIMIT"
+                elif len(positions)>=cfg.max_positions:
+                    reason="MAX_POSITIONS"
+                if reason is None:
+                    eq, exposed=snapshot()
+                    cat=MARKET_BY_SYMBOL[sym].category
+                    used=_category_used(positions,mids,cat)
+                    budget=min(
+                        cfg.max_asset_weight*eq,order["target_weight"]*eq,
+                        max(0.,cfg.max_total_exposure*eq-exposed),
+                        max(0.,cfg.max_sector_exposure*eq-used),cash
+                    )
+                    if cat=="Criptomonedas":
+                        budget=min(budget,max(0.,cfg.max_crypto_exposure*eq-used))
+                    if budget<50:
+                        reason="INSUFFICIENT_RISK_BUDGET"
+                if reason is None:
+                    ask=_costs(cfg,mids[sym],"BUY")
+                    qty=budget/(ask*(1+cfg.fee_bps/10000))
+                    fee=qty*ask*cfg.fee_bps/10000
+                    spent=qty*ask+fee
+                    cash-=spent
+                    positions[sym]=dict(
+                        symbol=sym,category=cat,qty=qty,basis=spent,
+                        entry_fill=ask,entry_tick=seq
+                    )
+                    con.execute(
+                        "INSERT INTO micro_positions(symbol,category,qty,basis,entry_fill,entry_tick)"
+                        " VALUES(?,?,?,?,?,?)",
+                        (sym,cat,qty,spent,ask,seq)
+                    )
+                    con.execute(
+                        "INSERT INTO micro_trades(tick,symbol,side,qty,mid,fill,fee,realized_pnl,reason,cash_after)"
+                        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (seq,sym,"BUY",qty,mids[sym],ask,fee,0.,order["reason"],cash)
+                    )
+                    events.append({"symbol":sym,"event":"BUY_SIM","notional":round(spent,2),
+                                   "decision_tick":order["decision_tick"],"fill_tick":seq})
+                    outcomes[sym]="ENTRY_FILLED"
+                    recent_count+=1
+                else:
+                    events.append({"symbol":sym,"event":"BUY_CANCELED","reason":reason})
+            con.execute("DELETE FROM micro_pending WHERE symbol=?",(sym,))
+        # Decide exits now but fill only on the next synthetic second.
         for sym in sorted(positions):
             pos=positions[sym]
-            bid=_costs(cfg,mids[sym],"SELL")
             net=_liquidation_value(cfg,mids[sym],pos["qty"])
-            pct=(net/pos["basis"]-1)*10_000
+            pct=(net/pos["basis"]-1)*10000
             held=seq-pos["entry_tick"]
             reason=None
             if pct>=cfg.profit_target_net_bps and held>=cfg.min_hold_ticks:
@@ -290,21 +379,16 @@ def process_second(
             elif held>=cfg.max_hold_ticks:
                 reason="MAX_HOLD_TIME"
             elif tick.events[sym]!="NO_CONFIRMED_NEWS_CONTEXT":
-                reason="UNKNOWN_CONTEXT_EXIT"
-            if reason:
-                fee=pos["qty"]*bid*cfg.fee_bps/10_000
-                proceeds=pos["qty"]*bid-fee
-                pnl=proceeds-pos["basis"]
-                cash+=proceeds
+                reason="UNEXPLAINED_RISK_EXIT"
+            if reason and sym not in outcomes:
                 con.execute(
-                    "INSERT INTO micro_trades(tick,symbol,side,qty,mid,fill,fee,realized_pnl,reason,cash_after)"
-                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    (seq,sym,"SELL",pos["qty"],mids[sym],bid,fee,pnl,reason,cash),
+                    "INSERT OR IGNORE INTO micro_pending"
+                    "(symbol,side,decision_tick,target_weight,priority,reason)"
+                    "VALUES(?,?,?,?,?,?)",
+                    (sym,"SELL",seq,0.,100.,reason)
                 )
-                con.execute("DELETE FROM micro_positions WHERE symbol=?",(sym,))
-                events.append({"symbol":sym,"event":"SELL_SIM","reason":reason,"net_pnl":round(pnl,4)})
-                outcomes[sym]=(reason,pct)
-                del positions[sym]
+                events.append({"symbol":sym,"event":"SELL_PENDING",
+                               "decision_tick":seq,"reason":reason})
         # All remaining candidate analysis uses only old quotes + THIS synthetic mid.
         candidates=[]
         trades_recent=con.execute(
