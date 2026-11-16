@@ -25,6 +25,7 @@ from nory.micro_lab import (
     is_paused as micro_is_paused, set_paused as micro_set_paused,
 )
 from nory.micro_worker import run_steps as micro_run_steps
+from nory.auto_runner import MicroAutoRunner
 from nory.micro_feed import SCENARIOS as MICRO_SCENARIOS
 
 
@@ -66,6 +67,12 @@ div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="pri
     """,
     unsafe_allow_html=True,
 )
+
+
+@st.cache_resource(show_spinner=False)
+def _get_micro_auto_runner() -> MicroAutoRunner:
+    # One worker per local Streamlit process. NEVER starts on page load.
+    return MicroAutoRunner()
 
 
 def _figure(title: str, height: int = 390) -> go.Figure:
@@ -264,6 +271,8 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
         "generados por software. NO existe un feed de bolsa por segundo, "
         "órdenes reales ni beneficios asegurados."
     )
+    auto_runner = _get_micro_auto_runner()
+    auto_status = auto_runner.status()
     micro_data = micro_dashboard()
     micro_state = micro_data["state"]
     session_locked = micro_state["universe_json"] is not None
@@ -301,6 +310,45 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
         format_func=lambda x: f"{x} · {MARKETS[x]}",
         key="micro_symbols",
     )
+    st.markdown("**Modo automático desde AIS (sin comandos de terminal)**")
+    auto_cols = st.columns([1.1,1.1])
+    with auto_cols[0]:
+        if auto_status["running"]:
+            st.success("AUTO ACTIVO · simulando un ciclo cada ~1 segundo")
+        elif auto_status["status"] == "ERROR":
+            st.error("AUTO DETENIDO POR ERROR")
+        elif micro_state["halted"]:
+            st.error("AUTO BLOQUEADO POR LÍMITE DE PÉRDIDA")
+        else:
+            st.caption("AUTO DETENIDO · puedes iniciarlo manualmente")
+    with auto_cols[1]:
+        if auto_status["running"]:
+            if st.button(
+                "■ Detener automático", key="micro_auto_stop",
+                type="primary", use_container_width=True,
+            ):
+                auto_runner.stop()
+                st.rerun()
+        else:
+            if st.button(
+                "▶ Iniciar automático (1 s)", key="micro_auto_start",
+                type="primary", use_container_width=True,
+                disabled=micro_state["halted"] or not micro_symbols or "SPY" not in micro_symbols,
+            ):
+                try:
+                    auto_runner.start(
+                        symbols=tuple(micro_symbols), scenario=scenario,
+                        interval_seconds=1.0,
+                    )
+                    st.rerun()
+                except (ValueError, RuntimeError, OSError) as exc:
+                    st.error(f"No fue posible iniciar automático: {exc}")
+    st.caption(
+        "Basta con pulsar Iniciar automático una vez. Nory funciona en segundo plano "
+        "mientras el servidor local de Streamlit esté abierto; no depende de "
+        "que mantengas la pestaña del navegador visible. Al cerrar Python, se detiene. "
+        "Solo genera datos sintéticos y movimientos ficticios."
+    )
     c_start, c_one, c_batch = st.columns([1.1,1,1])
     with c_start:
         if micro_state["halted"]:
@@ -311,9 +359,10 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
                 st.rerun()
         else:
             if st.button("■ Pausar simulador", key="micro_pause", use_container_width=True):
-                micro_set_paused(True)
+                auto_runner.stop()
                 st.rerun()
     can_run = (not micro_state["paused"] and not micro_state["halted"] and
+               not auto_status["running"] and
                len(micro_symbols)>0 and "SPY" in micro_symbols)
     with c_one:
         if st.button(
@@ -343,8 +392,8 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
             except (ValueError,OSError,RuntimeError) as exc:
                 st.error(f"MicroLab: {exc}")
     st.caption(
-        "La opción de 30 segundos avanza 30 segundos VIRTUALES de golpe. "
-        "Para ejecutar cerca de un ciclo cada segundo real, utiliza el worker."
+        "Los botones de 1 y 30 segundos son controles manuales. "
+        "Se deshabilitan mientras funciona AUTO para evitar ciclos duplicados."
     )
     st.code(
         "python -m nory.micro_worker --demo --steps 300 "
@@ -353,14 +402,25 @@ with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones 
         language="powershell",
     )
     st.caption(
-        "Ejecuta el comando en otra terminal con el simulador activado. "
-        "Necesita PC encendida. Ctrl+C detiene. "
-        "Si cambias el escenario, primero debes finalizar y respaldar la sesión anterior."
+        "El comando de terminal es OPCIONAL. Úsalo solo si prefieres ejecutar "
+        "Nory fuera del panel. Nunca ejecutes el comando y AUTO al mismo tiempo "
+        "sobre la misma base SQLite."
     )
     @st.fragment(run_every="2s")
     def _render_micro_metrics():
         micro_data=micro_dashboard()
         micro_state=micro_data["state"]
+        auto_live = auto_runner.status()
+        if auto_live["running"]:
+            st.caption(
+                f'● AUTO EN EJECUCIÓN · {auto_live["cycles_this_run"]} ciclos '
+                f'en esta sesión · {auto_live["interval_seconds"]:.1f} s de intervalo'
+            )
+        elif auto_live["last_error"]:
+            st.error(f'Automático detenido por error: {auto_live["last_error"]}')
+        elif auto_live["status"] == "CIRCUIT_HALTED" or micro_state["halted"]:
+            st.error("Límite de pérdida ficticia alcanzado; automático detenido.")
+
         st.divider()
         state_cols = st.columns(4)
         eq=micro_state["equity"]
