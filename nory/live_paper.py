@@ -240,6 +240,15 @@ def apply_real_quotes(
             return {"status":"HALTED" if state["halted"] else "PAUSED","events":[]}
         cash=float(state["cash"])
         positions=_positions(db)
+        missing_held=sorted(sym for sym in positions if sym not in valid)
+        if missing_held:
+            db.rollback()
+            return {
+                "status":"STALE_POSITION_QUOTES",
+                "missing":missing_held,
+                "events":[],
+                "warning":"Position marks are stale. Paper trading must be paused; no fills are permitted.",
+            }
         fresh={s:q for s,q in valid.items() if _next_quote(db,s,q.exchange_time)}
         if not fresh:
             db.rollback()
