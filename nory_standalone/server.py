@@ -16,6 +16,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .nory.backtest import validate
 from .nory.config import BASE, LABELS, Config
 from .nory.engine import Engine
+from .nory.launcher import APP_ID, instance_id
+from . import __version__
 
 
 class ResearchRequest(BaseModel):
@@ -41,7 +43,7 @@ def create_app(cfg=None, db_path=None, *, network=True):
 
     app = FastAPI(
         title="NORY 2.0 · Paper Research",
-        version="2.1.0",
+        version=__version__,
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -88,6 +90,15 @@ def create_app(cfg=None, db_path=None, *, network=True):
     @app.get("/api/session")
     async def session():
         return {"token": token, "config": asdict(cfg), "strategies": LABELS}
+
+    @app.get("/api/health")
+    async def health():
+        return {
+            "app": APP_ID,
+            "version": __version__,
+            "mode": "PAPER_ONLY",
+            "instance_id": instance_id(cfg, engine.db_path),
+        }
 
     @app.get("/api/status")
     async def status(provider: str = "coinbase", strategy: str = "trend"):

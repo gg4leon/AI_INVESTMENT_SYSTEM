@@ -116,39 +116,76 @@ def main(argv=None):
             else:
                 print(text)
             return 0
-        import uvicorn
-        from .server import create_app
+        from . import __version__
+        from .nory.launcher import instance_id, reserve_endpoint
 
-        (BASE / "logs").mkdir(exist_ok=True)
-        handler = RotatingFileHandler(
-            BASE / "logs" / "nory.log",
-            maxBytes=2_000_000,
-            backupCount=3,
-            encoding="utf-8",
+        allow_legacy = (
+            args.config is None
+            and args.db.resolve() == (BASE / "data" / "nory.sqlite3").resolve()
         )
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-        )
-        logging.basicConfig(
-            level=logging.INFO, handlers=[handler, logging.StreamHandler()]
-        )
-        url = f"http://127.0.0.1:{args.port}"
-        print(
-            f"NORY 2.0 · PAPER ONLY\nPanel local: {url}\nCtrl+C para cerrar. Inicia detenido; no hay operaciones reales."
-        )
-        if not args.no_browser:
-            timer = threading.Timer(1.5, lambda: webbrowser.open(url))
-            timer.daemon = True
-            timer.start()
-        uvicorn.run(
-            create_app(cfg, args.db, network=not args.offline),
-            host="127.0.0.1",
-            port=args.port,
-            workers=1,
-            log_level="info",
-            access_log=False,
-        )
-        return 0
+        with reserve_endpoint(
+            args.port, instance_id(cfg, args.db), allow_legacy=allow_legacy
+        ) as target:
+            if target.reused:
+                print(
+                    f"Nory ya está abierto en {target.url}. Se reutiliza esa instancia sin iniciar otro motor."
+                )
+                if target.existing_version != __version__:
+                    print(
+                        f"La instancia activa usa v{target.existing_version}; esta instalación es v{__version__}. Para aplicar la actualización, cierra su consola con Ctrl+C y vuelve a iniciar."
+                    )
+                if not args.no_browser:
+                    webbrowser.open(target.url)
+                return 0
+
+            import uvicorn
+            from .server import create_app
+
+            (BASE / "logs").mkdir(exist_ok=True)
+            handler = RotatingFileHandler(
+                BASE / "logs" / "nory.log",
+                maxBytes=2_000_000,
+                backupCount=3,
+                encoding="utf-8",
+            )
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+            )
+            logging.basicConfig(
+                level=logging.INFO, handlers=[handler, logging.StreamHandler()]
+            )
+            if target.port != args.port:
+                print(
+                    f"El puerto {args.port} está ocupado. Nory utilizará {target.port}."
+                )
+            print(
+                f"NORY 2.0 · PAPER ONLY\nPanel local: {target.url}\nCtrl+C para cerrar. Inicia detenido; no hay operaciones reales.",
+                flush=True,
+            )
+
+            class ReadyServer(uvicorn.Server):
+                async def startup(self, sockets=None):
+                    await super().startup(sockets=sockets)
+                    if self.started and not args.no_browser:
+                        threading.Thread(
+                            target=webbrowser.open, args=(target.url,), daemon=True
+                        ).start()
+
+            server = ReadyServer(
+                uvicorn.Config(
+                    create_app(cfg, args.db, network=not args.offline),
+                    host="127.0.0.1",
+                    port=target.port,
+                    workers=1,
+                    log_level="info",
+                    access_log=False,
+                )
+            )
+            try:
+                server.run(sockets=[target.listener])
+            except KeyboardInterrupt:
+                pass
+            return 0 if server.started else 2
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"Nory no pudo continuar: {exc}", file=sys.stderr)
         return 2

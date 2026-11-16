@@ -39,7 +39,9 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe run.py
 ```
 
-4. Abre **http://127.0.0.1:8765** si el navegador no se abre automáticamente.
+4. Abre la dirección que indica la consola, normalmente **http://127.0.0.1:8765**,
+   si el navegador no se abre automáticamente. Si otra aplicación ocupa ese
+   puerto, el lanzador utiliza uno libre y muestra la dirección elegida.
    Pulsa **Iniciar Nory** una vez. **Detener Nory** cancela órdenes pendientes y
    detiene las decisiones automáticas; conserva las posiciones ficticias.
 5. Para siguientes sesiones, haz doble clic en **`INICIAR_NORY.bat`**. El archivo
@@ -288,10 +290,16 @@ Un fallo de escritura detiene las decisiones; revisa el registro y reinicia.
 | Cotización antigua | El ticker puede permanecer inactivo. Espera un mensaje nuevo; el heartbeat no refresca el precio. |
 | Reconectando | Revisa Internet, proxy/firewall, TLS y acceso a los dos hosts WebSocket. Se reintenta con backoff. |
 | Ya existe un motor | Cierra el proceso anterior; un cierre inesperado libera el bloqueo del SO. No borres la base. |
-| Puerto ocupado | Usa `run.py --port 8766` y abre `http://127.0.0.1:8766`. |
+| Error 10048 / puerto ocupado | Si Nory ya aparece en `http://127.0.0.1:8765`, esa instancia sigue activa. El lanzador 2.1.1 la detecta y la abre; para aplicar una actualización cierra su consola con `Ctrl+C` y vuelve a iniciar. Si el puerto pertenece a otra app, elige otro automáticamente. |
 | Configuración difiere | Usa los parámetros originales o `--db` con otra ruta; no sobrescribas el historial. |
 | Bloqueo por riesgo | Investiga el diagnóstico y el historial; crea otro experimento si procede. No hay reinicio automático del bloqueo. |
 | No hay Internet | `run.py --offline` abre el panel sin datos nuevos ni precios sustitutos. |
+
+El `.bat` también acepta opciones, por ejemplo `INICIAR_NORY.bat --port 8766`.
+Se reserva el puerto antes de arrancar SQLite o conexiones de mercado y el
+navegador solo se abre después de que el servidor esté listo. Una instancia
+compatible existente se reutiliza sin iniciar otro motor. El bloqueo por base
+de datos sigue impidiendo trabajadores duplicados incluso en puertos distintos.
 
 Arquitectura y auditoría: [ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md).

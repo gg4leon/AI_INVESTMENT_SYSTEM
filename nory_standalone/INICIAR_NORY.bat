@@ -19,7 +19,7 @@ if errorlevel 1 (
     exit /b 1
   )
 )
-".venv\Scripts\python.exe" run.py
+".venv\Scripts\python.exe" run.py %*
 if errorlevel 1 (
   echo Revisa el mensaje anterior y logs\nory.log.
   echo Si faltan dependencias: .venv\Scripts\python.exe -m pip install -r requirements.txt

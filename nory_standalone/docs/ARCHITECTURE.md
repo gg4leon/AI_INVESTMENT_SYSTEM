@@ -39,6 +39,7 @@ Kraken WS ──┘   por proveedor       └─ cotización posterior ─ fills
 | `nory/core.py` | Motor determinista, riesgo, reservas, ejecución y contabilidad. |
 | `nory/storage.py` | WAL, atomicidad, libro, agregados, retención y consultas. |
 | `nory/engine.py` | Coordinador asíncrono, bloqueo entre procesos, start/stop, recuperación. |
+| `nory/launcher.py` | Reserva del socket antes del motor, detección de instancia compatible y selección de puerto libre. |
 | `nory/backtest.py` | Replay, selección con entrenamiento, embargo y holdout. |
 | `server.py` | Lifespan, API local, SSE, controles, exportación y validación en segundo plano. |
 | `static/` | Cuatro vistas, gráficos SVG derivados del historial, filtros y diseño adaptable. |
