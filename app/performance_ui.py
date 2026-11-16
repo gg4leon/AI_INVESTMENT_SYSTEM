@@ -11,6 +11,8 @@ from nory.performance import (
     summarize_live,summarize_synthetic,diagnosis,
 )
 from nory.live_paper import LIVE_DB,COINBASE_LIVE_DB
+from nory.validation import validate_out_of_sample,ValidationConfig
+from data.market_data import get_market_data
 
 
 def _csv_download(title, rows, filename, key):
@@ -152,6 +154,110 @@ def render_performance():
     else:
         report=summarize_synthetic()
         _render_report(report,"SINTETICO",False)
+
+    st.divider()
+    with st.expander("🧪 Laboratorio histórico: entrenamiento y prueba fuera de muestra",
+                     expanded=False):
+        st.write(
+            "AIS selecciona la estrategia usando únicamente el 70 % inicial "
+            "del historial. Después evalúa los resultados en el 30 % reservado, "
+            "sin haberlo usado para escoger la estrategia."
+        )
+        st.caption(
+            "Las señales se calculan con datos hasta el cierre anterior y "
+            "las operaciones se simulan en la siguiente apertura, con costes."
+        )
+        c1,c2=st.columns(2)
+        with c1:
+            valid_symbol=st.selectbox(
+                "Mercado histórico Yahoo",
+                ["SPY","QQQ","AAPL","MSFT","NVDA","BTC-USD","ETH-USD"],
+                key="wf_symbol",
+            )
+        with c2:
+            fee=st.number_input(
+                "Comisión supuesta por lado (bps)",
+                min_value=0.,max_value=200.,value=60.,step=5.,
+                key="wf_fee",
+            )
+        if st.button("Validar sin mirar los resultados futuros",
+                     type="primary",key="wf_run"):
+            try:
+                with st.spinner("Descargando históricos y separando entrenamiento/prueba..."):
+                    frame=get_market_data(valid_symbol,period="5y",interval="1d")
+                    if frame is None or len(frame)<150:
+                        raise ValueError("No hay suficientes velas reales válidas")
+                    res=validate_out_of_sample(
+                        frame,ValidationConfig(fee_bps_each_side=float(fee))
+                    )
+                    res["symbol"]=valid_symbol
+                    st.session_state["wf_last_result"]=res
+                st.success("Validación histórica completada. Las ejecuciones siguen siendo ficticias.")
+            except (ValueError,OSError,RuntimeError,KeyError) as exc:
+                st.error(f"No se pudo validar: {exc}")
+        res=st.session_state.get("wf_last_result")
+        if res:
+            st.markdown(
+                f'**Última validación: {res["symbol"]}** · '
+                f'Estrategia elegida SOLO con entrenamiento: '
+                f'**{res["chosen_from_train_only"]}**'
+            )
+            d=res["dates"]
+            st.caption(
+                f'Entrenamiento: {d["train_start"][:10]} a {d["train_end"][:10]} · '
+                f'Prueba reservada: {d["holdout_start"][:10]} a {d["holdout_end"][:10]}'
+            )
+            train=pd.DataFrame(res["all_training_summaries"])
+            train.columns=["Estrategia","Retorno entrenamiento (%)",
+                           "Drawdown máximo entrenamiento (%)","Ventas entrenamiento"]
+            st.write("**Selección: primeros datos, sin tocar la prueba**")
+            st.dataframe(train,hide_index=True,use_container_width=True)
+            tests=pd.DataFrame([{
+                "Estrategia":name,
+                "Resultado reservado (%)":round(val["return_pct"],3),
+                "Drawdown reservado (%)":round(val["max_drawdown_pct"],3),
+                "Entradas ficticias":val["buys"],
+                "Costes ficticios USD":round(val["recorded_fees"],2),
+            } for name,val in res["holdout_results"].items()])
+            st.write("**Periodo realmente reservado: comparación de estrategias**")
+            st.dataframe(tests,hide_index=True,use_container_width=True)
+            winner=res["chosen_holdout"]
+            cols=st.columns(3)
+            cols[0].metric("Rendimiento reservado, estrategia elegida",
+                           f'{winner["return_pct"]:+.3f}%')
+            cols[1].metric("Drawdown reservado",
+                           f'{winner["max_drawdown_pct"]:.3f}%')
+            cols[2].metric("Referencia BTC/acción 100 % invertida",
+                           f'{res["benchmark_100pct_buy_hold_net_pct"]:+.3f}%')
+            chart=go.Figure()
+            for key,val in res["holdout_results"].items():
+                curve=pd.DataFrame(val["curve"])
+                chart.add_trace(go.Scatter(
+                    x=curve["date"],y=curve["equity"],
+                    name=key,mode="lines",
+                    line=dict(color="#ff0d00" if key==res["chosen_from_train_only"]
+                              else "#ffffff" if key=="CASH" else "#777777",
+                              width=3 if key==res["chosen_from_train_only"] else 1.5),
+                ))
+            chart.update_layout(
+                height=350,paper_bgcolor="#101010",plot_bgcolor="#101010",
+                font=dict(color="#ffffff"),
+                title="Curvas ficticias del periodo fuera de muestra",
+                xaxis=dict(showgrid=True,gridcolor="#292929"),
+                yaxis=dict(showgrid=True,gridcolor="#292929"),
+            )
+            st.plotly_chart(chart,use_container_width=True)
+            _csv_download(
+                "Exportar trades de estrategia elegida",
+                winner["trades"],"ais_wf_chosen_trades.csv","wf_trades",
+            )
+            st.warning(
+                "Una prueba histórica no demuestra rentabilidad futura. "
+                "Yahoo puede ajustar precios; las operaciones al próximo "
+                "precio de apertura son aproximadas. El benchmark invierte "
+                "100 % y la estrategia hasta 30 %: sus riesgos NO son iguales. "
+                "Una sola partición 70/30 es una evaluación preliminar."
+            )
 
     with st.expander("Cómo interpretar Nory sin engañarnos"):
         st.markdown(
