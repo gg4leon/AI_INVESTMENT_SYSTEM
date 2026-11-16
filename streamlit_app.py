@@ -20,10 +20,16 @@ from backtesting.engine import BacktestConfig
 from nory.book import get_dashboard as nory_dashboard, is_paused as nory_is_paused, set_paused as nory_set_paused
 from nory.worker import run_once as nory_run_once
 from nory.engine import NoryPolicy
+from nory.micro_lab import (
+    DEFAULT_SYMBOLS as MICRO_DEFAULT_SYMBOLS, dashboard as micro_dashboard,
+    is_paused as micro_is_paused, set_paused as micro_set_paused,
+)
+from nory.micro_worker import run_steps as micro_run_steps
+from nory.micro_feed import SCENARIOS as MICRO_SCENARIOS
 
 
 st.set_page_config(
-    page_title="AIS · Nory v0.7 Investment Terminal",
+    page_title="AIS · Nory v0.8 Investment Terminal",
     page_icon="🔺",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -250,6 +256,149 @@ st.caption(
     "Plataforma local de investigación y simulación de mercados. "
     "No es una cuenta financiera ni una recomendación de inversión."
 )
+
+with st.expander("⚡ NORY MICRO LAB v0.8 · segundos sintéticos y operaciones pequeñas", expanded=True):
+    st.markdown("**Laboratorio de estrategia multiactivo a intervalos de ~1 segundo.**")
+    st.warning(
+        "**SIMULACIÓN EXCLUSIVAMENTE SINTÉTICA.** Los segundos y precios son "
+        "generados por software. NO existe un feed de bolsa por segundo, "
+        "órdenes reales ni beneficios asegurados."
+    )
+    micro_data = micro_dashboard()
+    micro_state = micro_data["state"]
+    session_locked = micro_state["universe_json"] is not None
+    if session_locked:
+        active_symbols = json.loads(micro_state["universe_json"])
+        current_scenario = micro_state["scenario"]
+        st.caption(
+            f"Sesión en curso: {current_scenario}, "
+            f"{len(active_symbols)} símbolos; tick sintético {micro_state['tick']}. "
+            "Los parámetros no se modifican durante una sesión."
+        )
+    else:
+        active_symbols = list(MICRO_DEFAULT_SYMBOLS)
+        current_scenario = "mixed"
+    scen_labels = {
+        "mixed":"Mercado mixto (incluye caídas inesperadas)",
+        "calm":"Mercado tranquilo",
+        "selloff":"Tendencia bajista",
+        "shock":"Crisis y desplomes extraordinarios",
+    }
+    scenario = st.selectbox(
+        "Escenario simulado",
+        options=list(MICRO_SCENARIOS),
+        index=list(MICRO_SCENARIOS).index(current_scenario),
+        format_func=lambda x: scen_labels.get(x,x),
+        disabled=session_locked,
+        key="micro_scenario",
+    )
+    micro_symbols = st.multiselect(
+        "Universo en USD ficticios (SPY es obligatorio como contexto)",
+        options=[sym for sym in PAPER_SYMBOLS if MARKET_BY_SYMBOL[sym].currency=="USD"],
+        default=active_symbols,
+        max_selections=20,
+        disabled=session_locked,
+        format_func=lambda x: f"{x} · {MARKETS[x]}",
+        key="micro_symbols",
+    )
+    c_start, c_one, c_batch = st.columns([1.1,1,1])
+    with c_start:
+        if micro_state["halted"]:
+            st.error("CIRCUITO DE RIESGO ACTIVADO — no habrá nuevas operaciones.")
+        elif micro_state["paused"]:
+            if st.button("▶ Activar simulador", key="micro_activate", use_container_width=True):
+                micro_set_paused(False)
+                st.rerun()
+        else:
+            if st.button("■ Pausar simulador", key="micro_pause", use_container_width=True):
+                micro_set_paused(True)
+                st.rerun()
+    can_run = (not micro_state["paused"] and not micro_state["halted"] and
+               len(micro_symbols)>0 and "SPY" in micro_symbols)
+    with c_one:
+        if st.button(
+            "Simular 1 segundo", key="micro_single",
+            disabled=not can_run, use_container_width=True,
+        ):
+            try:
+                micro_result=micro_run_steps(
+                    tuple(micro_symbols),scenario,steps=1,interval_seconds=0.
+                )
+                st.session_state["micro_last_result"]=micro_result
+                st.rerun()
+            except (ValueError,OSError,RuntimeError) as exc:
+                st.error(f"MicroLab: {exc}")
+    with c_batch:
+        if st.button(
+            "Simular 30 segundos", key="micro_30",
+            disabled=not can_run, use_container_width=True,
+        ):
+            try:
+                with st.spinner("Calculando 30 velas SINTÉTICAS, costes y decisiones..."):
+                    micro_result=micro_run_steps(
+                        tuple(micro_symbols),scenario,steps=30,interval_seconds=0.
+                    )
+                st.session_state["micro_last_result"]=micro_result
+                st.rerun()
+            except (ValueError,OSError,RuntimeError) as exc:
+                st.error(f"MicroLab: {exc}")
+    st.caption(
+        "La opción de 30 segundos avanza 30 segundos VIRTUALES de golpe. "
+        "Para ejecutar cerca de un ciclo cada segundo real, utiliza el worker."
+    )
+    st.code(
+        "python -m nory.micro_worker --demo --steps 300 "
+        "--interval-seconds 1 --scenario " + scenario +
+        " --symbols " + " ".join(micro_symbols or ["SPY"]),
+        language="powershell",
+    )
+    st.caption(
+        "Ejecuta el comando en otra terminal con el simulador activado. "
+        "Necesita PC encendida. Ctrl+C detiene. "
+        "Si cambias el escenario, primero debes finalizar y respaldar la sesión anterior."
+    )
+    st.divider()
+    state_cols = st.columns(4)
+    eq=micro_state["equity"]
+    cash=micro_state["cash"]
+    state_cols[0].metric("Capital ficticio USD",f"$ {eq:,.2f}" if eq is not None else "$ 10,000.00")
+    state_cols[1].metric("Efectivo restante",f"$ {cash:,.2f}" if cash is not None else "Sin operaciones")
+    state_cols[2].metric("Segundo virtual",f'{micro_state["tick"]:,}')
+    state_cols[3].metric("Posiciones abiertas",len(micro_data["positions"]))
+    if micro_data["equity"]:
+        curve=pd.DataFrame(micro_data["equity"])
+        fig=_figure("Capital neto ficticio tras spread, fees y deslizamiento",310)
+        fig.add_trace(go.Scatter(
+            x=curve["tick"], y=curve["equity"],
+            name="Nory MicroLab · simulación",
+            line=dict(color="#ff0d00",width=2.7),mode="lines",
+        ))
+        fig.update_xaxes(title="Segundos virtuales generados")
+        fig.update_yaxes(title="USD ficticios")
+        st.plotly_chart(fig,use_container_width=True)
+        risk_cols=st.columns(2)
+        risk_cols[0].metric("Exposición ficticia",f'{curve["exposure_pct"].iloc[-1]:.2f}%')
+        risk_cols[1].metric("Caída desde máximo",f'{curve["drawdown_pct"].iloc[-1]:.2f}%')
+    if micro_data["positions"]:
+        st.markdown("**Cartera compartida entre empresas y mercados**")
+        st.dataframe(pd.DataFrame(micro_data["positions"]),hide_index=True,use_container_width=True)
+    if micro_data["pending"]:
+        st.markdown("**Órdenes pendientes del próximo segundo virtual**")
+        st.dataframe(pd.DataFrame(micro_data["pending"]),hide_index=True,use_container_width=True)
+    if micro_data["trades"]:
+        st.markdown("**Movimientos ficticios (incluyen todos los costes)**")
+        st.dataframe(pd.DataFrame(micro_data["trades"]),hide_index=True,use_container_width=True)
+    if micro_data["decisions"]:
+        with st.expander("🧠 Auditoría: por qué Nory compró, esperó o bloqueó"):
+            st.dataframe(
+                pd.DataFrame(micro_data["decisions"]),
+                hide_index=True,use_container_width=True,
+            )
+    st.caption(
+        "Una caída abrupta se trata como RIESGO SIN CAUSA VERIFICADA. "
+        "Nory puede bloquearla en vez de comprar. Los titulares RSS no provocan compras, "
+        "y no usamos rumores o información privada para operar."
+    )
 
 # NORY: portfolio central. Independent of the legacy per-asset paper simulator.
 with st.expander("🔺 NORY v0.7 · Cartera multiactivo autónoma (ficticia)", expanded=True):
