@@ -156,6 +156,75 @@ class RealQuotePaperTests(unittest.TestCase):
         self.assertLess(snap["state"]["cash"],10000)
         self.assertLess(snap["state"]["equity"],10000)
 
+    def test_real_time_rebound_creates_pending_then_next_quote_buy(self):
+        pause(False,self.db)
+        for step in range(45):
+            # Fabricated but chronological quote fixtures, no WebSocket.
+            # Slow decline is not proof of undervaluation.
+            eth=100*(1-.0012)**step
+            r=self.apply(t=step,btc=90000,eth=eth)
+            self.assertEqual(r["status"],"PROCESSED")
+        rebound=100*(1-.0012)**44 * 1.0003
+        signal=self.apply(t=45,btc=90000,eth=rebound)
+        self.assertTrue(any(x["event"]=="BUY_PENDING" and x["symbol"]=="ETH-USD"
+                            for x in signal["events"]))
+        self.assertFalse(dashboard(self.db)["fills"])
+        r=self.apply(t=46,btc=90000,eth=rebound*1.0001)
+        self.assertTrue(any(x["event"]=="BUY_PAPER" for x in r["events"]))
+        fills=dashboard(self.db)["fills"]
+        self.assertEqual(len(fills),1)
+        self.assertEqual(fills[0]["side"],"BUY")
+        self.assertEqual(fills[0]["decision_time"],(self.base+timedelta(seconds=45)).isoformat())
+        self.assertEqual(fills[0]["quote_time"],(self.base+timedelta(seconds=46)).isoformat())
+
+    def test_missing_quote_for_existing_position_stops_trading(self):
+        pause(False,self.db)
+        self.apply(t=0)
+        con=sqlite3.connect(self.db)
+        con.execute(
+            "INSERT INTO live_positions(symbol,quantity,basis,entry_ask,opened_at,last_bid)"
+            "VALUES(?,?,?,?,?,?)",
+            ("ETH-USD",.2,601.,3002.,self.base.isoformat(),3000.)
+        )
+        con.commit()
+        con.close()
+        now=self.base+timedelta(seconds=20)
+        result=apply_real_quotes(
+            {"BTC-USD":fake_quote("BTC-USD",now,90000.)},
+            self.db,now=now,
+        )
+        self.assertEqual(result["status"],"STALE_POSITION_QUOTES")
+        self.assertEqual(result["missing"],["ETH-USD"])
+        self.assertEqual(len(dashboard(self.db)["equity"]),1)
+
+    def test_selling_uses_real_bid_and_fee_produces_realized_pnl_in_ledger(self):
+        pause(False,self.db)
+        self.apply(t=0)
+        con=sqlite3.connect(self.db)
+        t0=self.base.isoformat()
+        con.execute(
+            "INSERT INTO live_positions(symbol,quantity,basis,entry_ask,opened_at,last_bid)"
+            " VALUES(?,?,?,?,?,?)",("ETH-USD",.1,305.,3050.,t0,3000.)
+        )
+        con.execute(
+            "UPDATE live_state SET cash=9695,equity=9985,peak=10000 WHERE id=1"
+        )
+        con.execute(
+            "INSERT INTO live_orders(symbol,side,decision_time,expires_at,reason,weight)"
+            " VALUES(?,?,?,?,?,?)",
+            ("ETH-USD","SELL",t0,(self.base+timedelta(seconds=7)).isoformat(),
+             "Test net exit",0)
+        )
+        con.commit()
+        con.close()
+        result=self.apply(t=1,btc=90000,eth=3100)
+        self.assertTrue(any(x["event"]=="SELL_PAPER" for x in result["events"]))
+        fills=dashboard(self.db)["fills"]
+        self.assertEqual(fills[0]["side"],"SELL")
+        self.assertLess(fills[0]["price"],3100)
+        self.assertGreater(fills[0]["fee"],0)
+        self.assertEqual(len(dashboard(self.db)["positions"]),0)
+
     def test_cost_assumptions_are_conservative_and_no_free_profit(self):
         cfg=LivePolicy()
         self.assertEqual(cfg.fee_bps_each_side,80.)
