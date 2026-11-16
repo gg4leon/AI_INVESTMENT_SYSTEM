@@ -97,10 +97,10 @@ def run_analysis(
         "risk": asdict(risk),
         "backtest": result.summary(),
         "price_history": json.loads(
-            candle_frame.to_json(orient="records")
+            candle_frame.to_json(orient="records", date_format="iso")
         ),
         "equity_curve": json.loads(
-            equity_frame.to_json(orient="records")
+            equity_frame.to_json(orient="records", date_format="iso")
         ),
         "trades": json.loads(
             result.trades.to_json(orient="records")
