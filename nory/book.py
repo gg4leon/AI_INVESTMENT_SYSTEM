@@ -246,11 +246,12 @@ def apply_cycle(
         halted = bool(portfolio["halted"])
         positions = _position_rows(con, source)
 
-        # Mark only with observed completed closes; never fabricate missing prices.
+        # At fill time we only know the new bar's Open. Size EVERY
+        # simultaneous fill from Open marks, not the future Close of that bar.
         for sym in sorted(observations):
             obs, _ = observations[sym]
             if sym in positions and obs.bar >= positions[sym]["mark_bar"]:
-                positions[sym]["mark_price"] = obs.close_price
+                positions[sym]["mark_price"] = obs.open_price
                 positions[sym]["mark_bar"] = obs.bar
 
         # Process previously pending orders against NEXT bar OPEN, never same bar.
@@ -310,7 +311,7 @@ def apply_cycle(
                         positions[symbol] = {
                             "source": source, "symbol": symbol, "category": cat,
                             "quantity": qty, "entry_price": fill,
-                            "invested_basis": spent, "mark_price": obs.close_price,
+                            "invested_basis": spent, "mark_price": obs.open_price,
                             "mark_bar": obs.bar,
                         }
                         action = "FILLED"
@@ -335,8 +336,14 @@ def apply_cycle(
                      pos["entry_price"],pos["invested_basis"],pos["mark_price"],pos["mark_bar"]),
                 )
 
-        # Update all current observations in the position ledger.
+        # Only after all next-Open fills, mark holdings at the latest
+        # completed Close for portfolio reporting / next-cycle stop logic.
         for symbol, pos in positions.items():
+            if symbol in observations:
+                obs, _ = observations[symbol]
+                if obs.bar >= pos["mark_bar"]:
+                    pos["mark_price"] = obs.close_price
+                    pos["mark_bar"] = obs.bar
             con.execute(
                 "UPDATE nory_positions SET mark_price=?,mark_bar=? "
                 "WHERE source=? AND symbol=?",
