@@ -1,4 +1,4 @@
-# AIS v0.6.1 — Investment Terminal / Markets & Paper Automation
+# AIS v0.7 — Investment Terminal con Nory
 
 Plataforma educativa de investigación, gráficos, noticias y operaciones **100% simuladas**. **No conecta a brókeres, no ejecuta compras/ventas reales y no requiere depositar dinero.** El logotipo de AIS conserva el diseño original aportado por su creador, vectorizado para su uso en la interfaz.
 
@@ -85,3 +85,105 @@ python main.py --demo --symbols SPY
 ```
 
 GitHub Actions ejecuta esas pruebas. Que las pruebas pasen indica que el código funciona conforme a sus supuestos, **no que una estrategia sea rentable ni apta para gestionar dinero real**. Falta validación temporal fuera de muestra, comparación ajustada a riesgos y costes, simulación de datos en tiempo de mercado, control de sesgos y verificación humana independiente. Yahoo Finance puede limitar, modificar o interrumpir el acceso y sus datos pueden estar atrasados/incompletos. No extrapolar resultados de datos sintéticos a mercados reales.
+
+---
+
+## Nory v0.7 — multiactivo, capital ficticio UNIFICADO
+
+**Nory** es el motor de investigación y `paper trading` multiactivo experimental.
+Conserva el logo original de AIS y los colores negro, rojo intenso y blanco.
+
+### Qué incluye realmente
+
+- Escáner concurrente de **hasta 20 activos por ciclo, máximo 4 descargas
+  paralelas** (principalmente limitado por Yahoo Finance y por las conexiones,
+  no por capacidad de trading de alta frecuencia). Los datos diarios pueden
+  estar retrasados.
+- Única **cartera común de 10,000 USD FICTICIOS** compartida por las posiciones
+  de esa fuente de datos. Las carteras de demo y Yahoo se mantienen separadas
+  para que las series inventadas no se mezclen con precios históricos.
+- Priorización reproducible por **volatilidad diaria reciente** y señal
+  técnica (SMA/RSI/MACD). Una volatilidad menor suele recibir más
+  presupuesto ficticio; esto **NO convierte a un activo en seguro ni
+  predice que ganará más**. El sistema no ha demostrado un rendimiento
+  superior a una estrategia pasiva.
+- Límites predeterminados: exposición total hasta **65 %**, una posición
+  hasta **15 %**, una categoría hasta **40 %**, criptomonedas sumadas hasta
+  **12 %**, máximo **8 posiciones**. Otros activos pueden recibir menos.
+- Órdenes **PENDING** decididas al cierre de la última vela confirmada.
+  La compra/venta simulada se contabiliza **a la apertura de la vela
+  siguiente** únicamente cuando aparece esa vela en el histórico.
+  Si se pierden velas, la orden caduca: no se inventan operaciones.
+- Comisiones ficticias de 10 puntos básicos y deslizamiento de 5 por
+  operación. Las salidas por señal bajista o stop también se programan
+  para una vela posterior.
+- Interruptor de riesgo si la caída de cartera simulada desde su máximo
+  alcanza el **12 %**. Bloquea nuevas compras; no garantiza
+  liquidación ni protección contra pérdidas adicionales.
+- Registro SQLite auditable de observaciones, prioridades, órdenes,
+  fills hipotéticos, posiciones y curva de capital.
+- Seguridad: **pausado inicialmente**. Ni la app ni el worker importan
+  ni invocan APIs de bróker. No hay depósito de dinero.
+
+### Cómo probarlo
+
+1. Abre AIS en el navegador y despliega
+   **«🔺 NORY v0.7 · Cartera multiactivo autónoma (ficticia)»**.
+2. Elige **DEMO sintética**, selecciona 3 a 8 activos y pulsa
+   **Activar Nory · SOLO SIMULACIÓN**.
+3. Pulsa **Revisar mercados y simular ciclo**. Verás observaciones y,
+   si existen señales alcistas, órdenes pendientes. Vuelve a pulsar para
+   avanzar **una vela sintética**; así podrán simularse las órdenes
+   anteriores a la siguiente apertura.
+4. Para revisar **datos históricos** de Yahoo selecciona el otro origen,
+   que conserva otra cartera ficticia separada y exige Internet. No se
+   sustituyen datos reales ausentes por precios inventados.
+5. Para automatizar ciclos, manteniendo tu ThinkPad encendida, en una
+   **segunda terminal PowerShell**:
+
+```powershell
+python -m nory.worker --demo --loop --interval-minutes 60 --symbols SPY QQQ AAPL MSFT NVDA BTC-USD ETH-USD
+```
+
+Sin `--demo`, consulta históricos Yahoo:
+
+```powershell
+python -m nory.worker --loop --interval-minutes 60 --symbols SPY QQQ AAPL MSFT NVDA BTC-USD ETH-USD
+```
+
+Se interrumpe con `Ctrl+C` o el botón **Pausar Nory** en el navegador.
+Si el equipo se suspende, el worker no ejecuta ciclos. Los ciclos
+se calculan con datos diarios, NO son transacciones ultrarrápidas.
+
+### Qué NO significa
+
+- Las “acciones simultáneas” son **observaciones de varios mercados
+  procesadas en paralelo**, con órdenes contables ficticias compartiendo
+  capital. El motor no puede garantizar disponibilidad, liquidez, spreads,
+  llenado inmediato o precio.
+- Un histórico descargado **después** del movimiento no permite haber
+  operado realmente en la apertura pasada: Nory sólo está evaluando un
+  escenario retrospectivo. Para paper trading prospectivo verificado
+  faltan sellos de recepción, precios en tiempo de mercado y un reloj
+  de ejecución controlado.
+- Nory v0.7 no permite usar instrumentos en MXN dentro de la misma
+  cartera USD sin conversión verificable de divisas: hasta tenerla,
+  divisas, índices, futuros y acciones mexicanas quedan en la pestaña
+  de investigación general de AIS.
+- Las noticias RSS se muestran como contexto pero **NO se convierten
+  en órdenes ni se usa información privada de famosos, relaciones
+  personales o rumores no verificados para negociar**. Esas funciones
+  requieren evaluación estadística, controles de procedencia y
+  supervisión antes de considerar su integración.
+- El capital ficticio, el porcentaje sugerido y las prioridades NO
+  son recomendaciones de inversión. Más diversificación NO garantiza
+  beneficio, y más operaciones pueden aumentar costes y pérdidas.
+
+Archivos: `nory/engine.py`, `nory/book.py`, `nory/worker.py` y
+`data/nory_paper.sqlite3` (la base local está ignorada por Git).
+Las decisiones y límites se comprueban con
+`python -m unittest discover -s tests -v`.
+
+Este módulo no es una estrategia validada: faltan pruebas fuera de muestra,
+benchmark comparable, pruebas prospectivas, monitorización de errores
+y controles de seguridad antes de siquiera evaluar una integración real.
