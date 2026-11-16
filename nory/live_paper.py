@@ -28,7 +28,7 @@ class LivePolicy:
     slippage_bps_each_side: float = 5.0
     max_spread_bps: float = 30.0
     profit_net_bps: float = 45.0
-    stop_net_bps: float = 160.0
+    stop_net_bps: float = 300.0
     portfolio_drawdown_kill: float = .06
     shock_return_threshold: float = -.006
     market_shock_threshold: float = -.008
@@ -222,6 +222,10 @@ def apply_real_quotes(
             raise ValueError("Only Kraken public USD spot quote objects allowed")
         if q.provider!="KRAKEN_PUBLIC_WS_V2":
             raise ValueError("Unverified quote provider")
+        if (not all(math.isfinite(v) for v in (q.bid,q.ask,q.bid_qty,q.ask_qty))
+            or q.bid<=0 or q.ask<=q.bid or q.bid_qty<=0 or q.ask_qty<=0
+            or q.spread_bps>300):
+            raise ValueError("Invalid or crossed quote book")
         if q.is_fresh(now=now,max_age_seconds=cfg.max_quote_age_seconds):
             valid[symbol]=q
     if "BTC-USD" not in valid:
