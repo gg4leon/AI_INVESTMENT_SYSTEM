@@ -218,6 +218,10 @@ def _macd_plot(snapshot: dict) -> go.Figure:
 def _number(value: float | None, suffix: str = "", digits: int = 2) -> str:
     return "N/D" if value is None else f"{value:,.{digits}f}{suffix}"
 
+def _navigate(page: str):
+    st.session_state["ais_page"] = page
+
+
 
 with st.sidebar:
     logo_path = Path(__file__).resolve().parent / 'assets' / 'ais_original.svg'
@@ -321,25 +325,19 @@ if ais_page == "🏠 Inicio":
         st.metric("Capital ficticio",f'$ {s_coin["stats"]["equity"]:,.2f}'
                   if s_coin["available"] else "Sin datos aún")
         st.caption(diagnosis(s_coin))
-        if st.button("Abrir Coinbase",key="home_go_live"):
-            st.session_state["ais_page"]="🔴 Mercado real"
-            st.rerun()
+        st.button("Abrir Coinbase",key="home_go_live", on_click=_navigate, args=("🔴 Mercado real",))
     with col2:
         st.markdown("**Kraken · REAL / PAPER**")
         st.metric("Capital ficticio",f'$ {s_kraken["stats"]["equity"]:,.2f}'
                   if s_kraken["available"] else "Sin datos aún")
         st.caption(diagnosis(s_kraken))
-        if st.button("Revisar rendimiento",key="home_go_performance"):
-            st.session_state["ais_page"]="📊 Rendimiento"
-            st.rerun()
+        st.button("Revisar rendimiento",key="home_go_performance", on_click=_navigate, args=("📊 Rendimiento",))
     with col3:
         st.markdown("**MicroLab · SINTÉTICO**")
         st.metric("Capital ficticio",f'$ {s_demo["stats"]["equity"]:,.2f}'
                   if s_demo["available"] else "Sin datos aún")
         st.caption("Este saldo proviene de precios inventados, NO del mercado.")
-        if st.button("Abrir simulación rápida",key="home_go_synthetic"):
-            st.session_state["ais_page"]="⚡ Simulación rápida"
-            st.rerun()
+        st.button("Abrir simulación rápida",key="home_go_synthetic", on_click=_navigate, args=("⚡ Simulación rápida",))
     st.divider()
     st.markdown("**Qué hacer primero**")
     st.write(
