@@ -7,6 +7,7 @@ import json
 import math
 
 from analysis.indicators import add_indicators, classify_rsi, classify_trend
+from app.markets import MARKETS
 from analysis.risk_engine import assess_risk
 from analysis.signal_engine import generate_signal
 from backtesting.engine import BacktestConfig, run_backtest
@@ -14,11 +15,6 @@ from data.demo_data import make_demo_data
 from data.market_data import get_market_data
 
 
-MARKETS = {
-    "SPY": "ETF S&P 500",
-    "BTC-USD": "Bitcoin",
-    "EURUSD=X": "Euro / Dólar",
-}
 PERIODS = ("1y", "2y", "5y")
 
 
@@ -84,7 +80,7 @@ def run_analysis(
 
     snapshot = {
         "schema_version": 1,
-        "app_version": "0.6",
+        "app_version": "0.6.1",
         "symbol": symbol,
         "market_name": MARKETS[symbol],
         "source": "SYNTHETIC_DEMO" if source == "demo" else "YAHOO_HISTORICAL",
