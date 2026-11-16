@@ -16,6 +16,8 @@ python -m streamlit run streamlit_app.py
 
 Si la terminal ya muestra `(.venv)`, puedes omitir la activación. Si `git status` muestra archivos locales modificados, guárdalos o respáldalos primero; no sobrescribas trabajo.
 
+Tras instalar dependencias, en Windows también puedes abrir **`INICIAR_AIS.bat` con doble clic** para arrancar el dashboard sin introducir comandos. La app se enlaza a `127.0.0.1` (solo este equipo).
+
 Streamlit inicia un servidor **local** que normalmente se abre en `http://localhost:8501` desde el navegador. Para cerrarlo, vuelve a la terminal y pulsa `Ctrl+C`.
 
 La primera pantalla no contiene datos hasta ejecutar una simulación. Empieza por **Demo sintética (sin Internet)** y presiona **Ejecutar análisis y simulación**. Después prueba **Históricos de Yahoo** para descargar precios reales históricos cuando haya Internet. Los datos reales pueden estar demorados o incompletos. **Nunca se sustituyen por precios inventados si la descarga falla.**
