@@ -248,6 +248,104 @@ st.caption(
     "No es una cuenta financiera ni una recomendación de inversión."
 )
 
+# CATÁLOGO: no hacemos decenas de consultas automáticas; se descarga bajo demanda.
+with st.expander(f"🌍 Universo de mercados · {len(CATALOG)} instrumentos", expanded=False):
+    st.caption("La disponibilidad de cotizaciones depende de Yahoo Finance.")
+    st.dataframe(
+        pd.DataFrame([{
+            "Símbolo": m.symbol,
+            "Activo": m.name,
+            "Mercado": m.category,
+            "Moneda/unidad": m.currency,
+            "Paper automático": "Sí (ficticio)" if m.paper_eligible else "Solo análisis",
+        } for m in CATALOG]),
+        use_container_width=True, hide_index=True,
+    )
+
+with st.expander("🤖 Automatización · cartera ficticia", expanded=False):
+    st.markdown("**Operador local en modo simulación**")
+    paused = is_paused()
+    if paused:
+        st.warning("MOTOR PAUSADO · no procesa movimientos.")
+        if st.button("Activar operador de SIMULACIÓN", key="activate_paper"):
+            set_paused(False)
+            st.rerun()
+    else:
+        st.success("MOTOR HABILITADO · no hay operaciones reales.")
+        if st.button("Pausar operador", key="pause_paper"):
+            set_paused(True)
+            st.rerun()
+    paper_choice = st.selectbox(
+        "Activo para un ciclo ficticio", PAPER_SYMBOLS,
+        format_func=lambda x: f"{x} · {MARKETS[x]}",
+        key="paper_symbol",
+    )
+    paper_demo = st.checkbox(
+        "Datos sintéticos para prueba", value=True, key="paper_demo"
+    )
+    if st.button(
+        "Ejecutar un ciclo ficticio ahora", key="paper_cycle", disabled=paused
+    ):
+        with st.spinner("Validando nueva vela, señales y duplicados..."):
+            events_now = run_paper_cycle((paper_choice,), demo=paper_demo)
+        st.json(events_now, expanded=False)
+    st.caption("En otra terminal, inicia el trabajador que revisa mercados cada hora:")
+    st.code(
+        "python -m automation.worker --loop --interval-minutes 60 --symbols SPY AAPL MSFT BTC-USD",
+        language="powershell",
+    )
+    st.caption(
+        "Para modo demo agrega --demo. Deja la PC encendida y la terminal abierta. "
+        "Para detener pulsa Ctrl+C."
+    )
+    accounts = get_accounts()
+    if accounts:
+        st.subheader("Cuentas ficticias, independientes por moneda")
+        st.dataframe(pd.DataFrame(accounts), use_container_width=True, hide_index=True)
+    journal = get_events(limit=30)
+    if journal:
+        st.subheader("Registro de movimientos hipotéticos")
+        st.dataframe(pd.DataFrame(journal), use_container_width=True, hide_index=True)
+    st.caption(
+        "Llenados al precio de cierre observado como aproximación hipotética; "
+        "NO son precios realmente ejecutables ni órdenes de mercado."
+    )
+
+with st.expander("📰 Noticias y cultura mediática · investigación", expanded=False):
+    st.warning(
+        "Los titulares RSS son agregados, no verificados independientemente por AIS. "
+        "Los rumores sobre personas y los chismes NUNCA activan movimientos. "
+        "El operador simulado utiliza solamente reglas técnicas."
+    )
+    if st.button("Consultar actualidad financiera de este activo", key="news_market"):
+        try:
+            with st.spinner("Consultando titulares RSS..."):
+                st.session_state["market_headlines"] = market_news(
+                    symbol, MARKET_BY_SYMBOL[symbol].name
+                )
+        except Exception as exc:
+            st.error(f"Noticias no disponibles: {type(exc).__name__}: {exc}")
+    if st.button("Consultar cultura, celebridades y marcas", key="news_media"):
+        try:
+            with st.spinner("Consultando titulares RSS..."):
+                st.session_state["media_headlines"] = media_news()
+        except Exception as exc:
+            st.error(f"Noticias no disponibles: {type(exc).__name__}: {exc}")
+    for key, title in (
+        ("market_headlines", "Mercados y empresas"),
+        ("media_headlines", "Cultura y marcas"),
+    ):
+        articles = st.session_state.get(key, [])
+        if articles:
+            st.subheader(title)
+            for article in articles:
+                st.markdown(f'**[{article["title"]}]({article["url"]})**')
+                st.caption(
+                    f'{article["publisher"]} · {article["published"]} · '
+                    + ("MENCIONA RUMOR, NO VERIFICADO" if article["unverified"]
+                       else "Titular agregado, pendiente de verificar")
+                )
+
 try:
     runs = list_runs(limit=75)
 except Exception as exc:
@@ -290,6 +388,8 @@ summary = snapshot["backtest"]
 signal = snapshot["signal"]
 risk = snapshot["risk"]
 source = snapshot["source"]
+if not MARKET_BY_SYMBOL[snapshot["symbol"]].paper_eligible:
+    st.warning("Este instrumento es solo de análisis; el operador automático no puede simular su compra directa.")
 source_label = (
     "DEMO · PRECIOS INVENTADOS" if source == "SYNTHETIC_DEMO"
     else "HISTÓRICO · YAHOO FINANCE"
