@@ -9,12 +9,14 @@ from threading import Event, RLock, Thread
 import time
 
 from nory.kraken_public import KrakenPublicClient, QuoteStore, REVERSE_PAIRS
-from nory.live_paper import LIVE_DB, apply_real_quotes, dashboard, pause
+from nory.live_paper import LIVE_DB, LivePolicy, apply_real_quotes, dashboard, pause
 
 
 class LivePaperRunner:
     def __init__(self,db_path: str | Path=LIVE_DB, *,client_factory=KrakenPublicClient,
-                 processor=apply_real_quotes, interval_seconds=1.):
+                 processor=apply_real_quotes, interval_seconds=1.,
+                 allowed_symbols=None,market_provider="KRAKEN_PUBLIC_WS_V2",
+                 policy:LivePolicy|None=None):
         if not .5<=interval_seconds<=10:
             raise ValueError("Invalid live interval")
         self._db_path=Path(db_path)
@@ -30,6 +32,9 @@ class LivePaperRunner:
         self._cycles=0
         self._last_processed=None
         self._interval=interval_seconds
+        self._allowed_symbols=tuple(allowed_symbols or REVERSE_PAIRS)
+        self._provider=market_provider
+        self._policy=policy
 
     def status(self):
         with self._lock:
@@ -42,11 +47,14 @@ class LivePaperRunner:
                 "last_result":self._last_processed,
                 "mode":"PUBLIC_REAL_QUOTES_PAPER_ONLY",
                 "interval_seconds":self._interval,
+                "provider":self._provider,
+                "assumed_fee_bps_each_side":(self._policy.fee_bps_each_side
+                                            if self._policy else LivePolicy().fee_bps_each_side),
             }
 
     def start(self,symbols=("BTC-USD","ETH-USD","SOL-USD","XRP-USD","ADA-USD")):
         symbols=tuple(dict.fromkeys(symbols))
-        if not symbols or "BTC-USD" not in symbols or any(s not in REVERSE_PAIRS for s in symbols):
+        if not symbols or "BTC-USD" not in symbols or any(s not in self._allowed_symbols for s in symbols):
             raise ValueError("Only supported Kraken USD pairs with BTC benchmark")
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
@@ -65,7 +73,7 @@ class LivePaperRunner:
                 pause(False,self._db_path)
                 self._client.start()
                 self._thread=Thread(target=self._loop,daemon=True,
-                                    name="Nory-Real-Kraken-Paper")
+                                    name="Nory-Live-Market-Paper")
                 self._thread.start()
             except Exception:
                 pause(True,self._db_path)
@@ -85,7 +93,8 @@ class LivePaperRunner:
                 feed_state=client.status().get("state")
                 quotes=client.store.snapshot(self._symbols,max_age_seconds=10)
                 if "BTC-USD" in quotes:
-                    result=self._processor(quotes,db_path=self._db_path)
+                    result=self._processor(quotes,db_path=self._db_path,
+                                           policy=self._policy,market_provider=self._provider)
                     if result["status"]=="PROCESSED":
                         last_data=time.monotonic()
                         with self._lock:
@@ -108,10 +117,11 @@ class LivePaperRunner:
                         with self._lock:
                             self._status="PAUSED"
                         break
-                if time.monotonic()-last_data>45:
+                if time.monotonic()-last_data>90:
                     with self._lock:
                         self._status="NO_FRESH_QUOTES_TIMEOUT"
-                        self._error="No usable Kraken quote update for 45 s. Simulated trading stopped."
+                        self._error=("No usable fresh exchange quote update for 90 seconds. "
+                                     "Paper trading stopped safely; no synthetic fallback.")
                     break
                 self._stop.wait(self._interval)
         except Exception as exc:
