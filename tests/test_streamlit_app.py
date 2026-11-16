@@ -28,8 +28,8 @@ class AppSmokeTest(unittest.TestCase):
 
     def test_all_sections_are_navigable_without_data(self):
         at=AppTest.from_file(str(APP_PATH)).run(timeout=30)
-        for section in ("📊 Rendimiento","🌍 Investigación","⚡ Simulación rápida",
-                        "🔺 Nory multiactivo"):
+        for section in ("📊 Rendimiento","🌍 Investigación","🔴 Mercado real",
+                        "⚡ Simulación rápida","🔺 Nory multiactivo"):
             nav=next(r for r in at.radio if r.label=="Navegación principal")
             nav.set_value(section).run(timeout=45)
             self.assertFalse(at.exception,
