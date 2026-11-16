@@ -1,0 +1,84 @@
+{
+  "tested_at_utc": "2026-11-16T19:35:13.798482+00:00",
+  "seconds": 20,
+  "test": "LIVE_PUBLIC_WEBSOCKET_NO_PAPER_ORDERS",
+  "counts": {
+    "coinbase": 473,
+    "kraken": 2813
+  },
+  "samples": {
+    "coinbase": {
+      "provider": "coinbase",
+      "symbol": "BTC-USD",
+      "exchange_ts": 1794857713.671681,
+      "received_ts": 1794857713.702119,
+      "bid": 64798.48,
+      "ask": 64798.49,
+      "bid_qty": 0.3313039,
+      "ask_qty": 0.00011714,
+      "sequence": 139586559778,
+      "volume_24h": 12786.62740713,
+      "change_24h_pct": -0.1693924810690972
+    },
+    "kraken": {
+      "provider": "kraken",
+      "symbol": "ETH-USD",
+      "exchange_ts": 1794857713.716446,
+      "received_ts": 1794857713.7912962,
+      "bid": 1813.6,
+      "ask": 1813.61,
+      "bid_qty": 7.32217064,
+      "ask_qty": 0.01654159,
+      "sequence": null,
+      "volume_24h": 28681.07560738,
+      "change_24h_pct": -0.69
+    }
+  },
+  "providers": [
+    {
+      "provider": "coinbase",
+      "state": "LIVE",
+      "messages": 588,
+      "valid_quotes": 473,
+      "invalid_messages": 0,
+      "reconnects": 0,
+      "last_message_ts": 1794857713.702119,
+      "last_quote_ts": 1794857713.702119,
+      "latency_ms": 30.43818473815918,
+      "error": null,
+      "subscriptions": [
+        "ADA-USD",
+        "BTC-USD",
+        "DOGE-USD",
+        "ETH-USD",
+        "SOL-USD",
+        "XRP-USD"
+      ],
+      "subscription_errors": {},
+      "endpoint": "wss://ws-feed.exchange.coinbase.com"
+    },
+    {
+      "provider": "kraken",
+      "state": "LIVE",
+      "messages": 2840,
+      "valid_quotes": 2813,
+      "invalid_messages": 0,
+      "reconnects": 0,
+      "last_message_ts": 1794857713.7912962,
+      "last_quote_ts": 1794857713.7912962,
+      "latency_ms": 74.85032081604004,
+      "error": null,
+      "subscriptions": [
+        "BTC-USD",
+        "ETH-USD",
+        "SOL-USD",
+        "XRP-USD",
+        "ADA-USD",
+        "DOGE-USD"
+      ],
+      "subscription_errors": {},
+      "endpoint": "wss://ws.kraken.com/v2"
+    }
+  ],
+  "passed": true
+}

@@ -1,0 +1,79 @@
+name: NORY 2.0 standalone
+
+on:
+  pull_request:
+    paths: ["nory_standalone/**", ".github/workflows/nory-standalone.yml"]
+  push:
+    branches: [main, "feature/nory-**"]
+    paths: ["nory_standalone/**", ".github/workflows/nory-standalone.yml"]
+  workflow_dispatch:
+    inputs:
+      public_probe:
+        type: boolean
+        default: false
+        description: "Run real public WebSocket connectivity probe (requires network)"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: nory_standalone/requirements*.txt
+      - run: python -m pip install -r nory_standalone/requirements-dev.txt
+      - run: python -m compileall -q nory_standalone
+      - run: python -m ruff check nory_standalone
+      - run: python -m ruff format --check nory_standalone
+      - run: python -m pytest nory_standalone/tests -q --junitxml=nory-test-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nory-tests-${{ matrix.os }}-${{ matrix.python }}
+          path: nory-test-results.xml
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: nory_standalone/requirements*.txt
+      - run: python -m pip install -r nory_standalone/requirements-browser.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m pytest nory_standalone/tests/test_browser.py -q
+        env:
+          NORY_BROWSER_TESTS: "1"
+  public-data:
+    if: github.event_name == 'workflow_dispatch' && inputs.public_probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r nory_standalone/requirements.txt
+      - run: python -m nory_standalone probe --seconds 25 --output nory_standalone/data/probe.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nory-live-probe
+          path: nory_standalone/data/probe.json
