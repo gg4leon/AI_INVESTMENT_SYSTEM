@@ -127,6 +127,19 @@ class QuoteStore:
         self._received=0
         self._rejected=0
 
+    def record_quote(self, quote: PublicQuote) -> bool:
+        """Record a validated public quote from an exchange-specific parser."""
+        if not isinstance(quote,PublicQuote):
+            raise TypeError("PublicQuote required")
+        with self._lock:
+            previous=self._latest.get(quote.symbol)
+            if previous and _parse_timestamp(quote.exchange_time)<=_parse_timestamp(previous.exchange_time):
+                self._rejected+=1
+                return False
+            self._latest[quote.symbol]=quote
+            self._received+=1
+            return True
+
     def record_message(self,message,now=None):
         try:
             parsed=parse_public_ticker(message,now=now)
@@ -134,17 +147,7 @@ class QuoteStore:
             with self._lock:
                 self._rejected+=1
             return 0
-        count=0
-        with self._lock:
-            for quote in parsed:
-                previous=self._latest.get(quote.symbol)
-                if previous and _parse_timestamp(quote.exchange_time)<=_parse_timestamp(previous.exchange_time):
-                    self._rejected+=1
-                    continue
-                self._latest[quote.symbol]=quote
-                self._received+=1
-                count+=1
-        return count
+        return sum(bool(self.record_quote(q)) for q in parsed)
 
     def snapshot(self,symbols=None,max_age_seconds=10,now=None):
         now=now or _utc()
