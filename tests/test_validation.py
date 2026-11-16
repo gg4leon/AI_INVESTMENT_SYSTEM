@@ -27,8 +27,8 @@ class ValidationTests(unittest.TestCase):
         a=prices()
         b=a.copy()
         split=int(len(a)*.7)
-        b.iloc[split:,-1]=b.iloc[split:,-1]*1.5
-        b.iloc[split:,0]=b.iloc[split:,0]*1.5
+        b.iloc[split:,-1]=b.iloc[split:,-1]*np.linspace(1.,1.5,len(b)-split)
+        b.iloc[split:,0]=b.iloc[split:,0]*np.linspace(1.,1.5,len(b)-split)
         ra=validate_out_of_sample(a)
         rb=validate_out_of_sample(b)
         self.assertEqual(ra["chosen_from_train_only"],rb["chosen_from_train_only"])
