@@ -1,0 +1,22 @@
+# Python virtualenvs
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local IDE files
+.vscode/
+
+# Generated artifacts
+data/*.csv
+*.log
+.pytest_cache/
+.coverage
