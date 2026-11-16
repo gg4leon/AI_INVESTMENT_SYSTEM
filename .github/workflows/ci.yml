@@ -31,3 +31,5 @@ jobs:
         run: python -m automation.worker --demo --once --symbols SPY
       - name: Nory worker paused-safe smoke test
         run: python -m nory.worker --demo --once --symbols SPY AAPL MSFT BTC-USD
+      - name: MicroLab synthetic-second worker smoke test
+        run: python -m nory.micro_worker --demo --steps 1 --interval-seconds 0.1 --symbols SPY AAPL NVDA
