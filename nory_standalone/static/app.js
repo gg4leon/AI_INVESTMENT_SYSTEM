@@ -170,7 +170,7 @@ function asset(symbol) {
 function updateControls() {
   const running = state?.running;
   $("start").disabled =
-    !connected || controlBusy || !!running || !!state?.fatal_error;
+    !connected || !state || controlBusy || !!running || !!state?.fatal_error;
   $("stop").disabled = !connected || controlBusy || !running;
 }
 async function command(path, body) {
