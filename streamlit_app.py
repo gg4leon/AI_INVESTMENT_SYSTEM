@@ -17,10 +17,13 @@ from automation.paper import get_accounts, get_events, is_paused, set_paused
 from automation.worker import cycle as run_paper_cycle
 from app.storage import get_run, list_runs, save_run
 from backtesting.engine import BacktestConfig
+from nory.book import get_dashboard as nory_dashboard, is_paused as nory_is_paused, set_paused as nory_set_paused
+from nory.worker import run_once as nory_run_once
+from nory.engine import NoryPolicy
 
 
 st.set_page_config(
-    page_title="AIS · Investment Terminal v0.6.1",
+    page_title="AIS · Nory v0.7 Investment Terminal",
     page_icon="🔺",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -242,11 +245,133 @@ if execute:
 
 st.markdown('<div class="ais-eyebrow">INTELLIGENCE / RESEARCH / BACKTEST</div>',
             unsafe_allow_html=True)
-st.title("AIS Investment Terminal")
+st.title("AIS Investment Terminal · Nory")
 st.caption(
     "Plataforma local de investigación y simulación de mercados. "
     "No es una cuenta financiera ni una recomendación de inversión."
 )
+
+# NORY: portfolio central. Independent of the legacy per-asset paper simulator.
+with st.expander("🔺 NORY v0.7 · Cartera multiactivo autónoma (ficticia)", expanded=True):
+    st.markdown(
+        "**Un solo capital USD ficticio para múltiples mercados.** "
+        "Nory compara señales y volatilidad de varios activos, propone distintos "
+        "tamaños de posición, aplica límites de riesgo y registra órdenes pendientes. "
+        "No realiza inversiones reales."
+    )
+    st.caption(
+        "El escáner puede consultar hasta 20 activos, con cuatro descargas paralelas. "
+        "No es trading de alta frecuencia ni predice qué activo será seguro."
+    )
+    nory_source = st.radio(
+        "Origen Nory",
+        ["DEMO sintética (sin Internet)", "Histórico Yahoo (sin transacciones reales)"],
+        horizontal=True, key="nory_source",
+    )
+    nory_demo = nory_source.startswith("DEMO")
+    nory_symbols = st.multiselect(
+        "Mercados vigilados por Nory (en USD)",
+        options=[sym for sym in PAPER_SYMBOLS if MARKET_BY_SYMBOL[sym].currency == "USD"],
+        default=["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "BTC-USD", "ETH-USD"],
+        format_func=lambda sym: f"{sym} · {MARKETS[sym]}",
+        max_selections=20,
+        key="nory_symbols",
+    )
+    nory_mode = "SYNTHETIC_DEMO" if nory_demo else "YAHOO_HISTORICAL"
+    nory_data = nory_dashboard(source=nory_mode)
+    status = nory_data["portfolio"]
+    left, right = st.columns(2)
+    with left:
+        if nory_data["paused"]:
+            st.warning("NORY PAUSADO. Sin órdenes ficticias nuevas.")
+            if st.button("Activar Nory · SOLO SIMULACIÓN", key="nory_activate"):
+                nory_set_paused(False)
+                st.rerun()
+        else:
+            st.success("NORY HABILITADO · SOLO CAPITAL FICTICIO")
+            if st.button("Pausar Nory", key="nory_pause"):
+                nory_set_paused(True)
+                st.rerun()
+    with right:
+        if st.button(
+            "Revisar mercados y simular ciclo",
+            key="nory_run",
+            disabled=nory_data["paused"] or not nory_symbols,
+            type="primary",
+        ):
+            try:
+                with st.spinner("Nory revisa datos en paralelo y aplica controles de exposición..."):
+                    nory_result = nory_run_once(tuple(nory_symbols), demo=nory_demo)
+                st.session_state["nory_result"] = nory_result
+                st.rerun()
+            except (ValueError, RuntimeError, OSError) as exc:
+                st.error(f"No se procesó el ciclo: {exc}")
+    if "nory_result" in st.session_state:
+        result = st.session_state["nory_result"]
+        if result.get("source") == nory_mode or result.get("status") == "PAUSED":
+            with st.expander("Ver explicación del último ciclo Nory", expanded=False):
+                st.json(result, expanded=False)
+
+    if status:
+        summary = st.columns(4)
+        summary[0].metric("Cartera Nory · ficticia USD", f'$ {status["equity"]:,.2f}')
+        summary[1].metric("Efectivo ficticio USD", f'$ {status["cash"]:,.2f}')
+        exp = (status["equity"] - status["cash"]) / status["equity"] * 100 if status["equity"] > 0 else 0
+        summary[2].metric("Exposición estimada", f"{exp:.1f}%")
+        summary[3].metric("Posiciones abiertas", str(len(nory_data["positions"])))
+        if status["halted"]:
+            st.error(
+                "Interruptor de riesgo ACTIVADO: no se admiten nuevas compras "
+                "ficticias tras superar el límite de pérdida de cartera."
+            )
+        if nory_data["positions"]:
+            st.markdown("**Posiciones compartiendo el mismo capital**")
+            st.dataframe(
+                pd.DataFrame(nory_data["positions"]),
+                use_container_width=True, hide_index=True,
+            )
+        cycles = pd.DataFrame(nory_data["cycles"])
+        if not cycles.empty:
+            nory_fig = _figure("Evolución ficticia de la cartera Nory", 290)
+            cycles = cycles.sort_values("id")
+            nory_fig.add_trace(go.Scatter(
+                x=cycles["id"], y=cycles["equity"],
+                mode="lines+markers", name="Capital de Nory",
+                line=dict(color="#ff0d00", width=2.5),
+            ))
+            nory_fig.update_xaxes(title="Ciclo procesado (no tiempo de mercado)")
+            st.plotly_chart(nory_fig, use_container_width=True)
+        if nory_data["orders"]:
+            st.markdown("**Órdenes pendientes, ejecutadas o vencidas · 100% hipotéticas**")
+            st.dataframe(
+                pd.DataFrame(nory_data["orders"]),
+                hide_index=True, use_container_width=True,
+            )
+        if nory_data["scans"]:
+            with st.expander("Justificaciones de señales y prioridades"):
+                st.dataframe(
+                    pd.DataFrame(nory_data["scans"]), hide_index=True,
+                    use_container_width=True,
+                )
+    else:
+        st.info("Nory no tiene cartera aún en este modo. Su capital inicial simulado será de 10,000 USD ficticios.")
+
+    st.caption(
+        "Cada operación se decide al cierre y solo se simula a la apertura de la "
+        "siguiente vela observada. Las órdenes pueden vencer y no ejecutarse. "
+        "Activos MXN, futuros, índices y Forex no se mezclan con USD sin "
+        "conversión fiable. Las noticias y rumores no disparan órdenes."
+    )
+    nory_command = (
+        "python -m nory.worker --loop --interval-minutes 60 "
+        + ("--demo " if nory_demo else "")
+        + "--symbols " + " ".join(nory_symbols or ["SPY"])
+    )
+    st.code(nory_command, language="powershell")
+    st.caption(
+        "Ejecuta el comando en OTRA terminal y deja Windows encendido. "
+        "El worker respeta el botón Pausar Nory. Ctrl+C para detener."
+    )
 
 # CATÁLOGO: no hacemos decenas de consultas automáticas; se descarga bajo demanda.
 with st.expander(f"🌍 Universo de mercados · {len(CATALOG)} instrumentos", expanded=False):
