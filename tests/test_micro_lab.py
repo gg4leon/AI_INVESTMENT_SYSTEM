@@ -129,6 +129,20 @@ class MicroLabTests(unittest.TestCase):
                 self.assertLess(pred[0],tick)
         con.close()
 
+    def test_micro_lab_generates_actual_paper_trades_over_long_demo(self):
+        # A correct implementation should exercise entries and exits, rather
+        # than merely print WAIT forever. Returns need NOT be positive.
+        set_paused(False,self.db)
+        run_steps(self.symbols,steps=360,interval_seconds=0,db_path=self.db)
+        con=sqlite3.connect(self.db)
+        buys=con.execute("SELECT COUNT(*) FROM micro_trades WHERE side='BUY'").fetchone()[0]
+        sells=con.execute("SELECT COUNT(*) FROM micro_trades WHERE side='SELL'").fetchone()[0]
+        pending=con.execute("SELECT COUNT(*) FROM micro_pending").fetchone()[0]
+        con.close()
+        print(f"MicroLab synthetic diagnostics: buys={buys}, sells={sells}, pending={pending}")
+        self.assertGreater(buys,0,"The simulator should exercise at least one fictitious entry")
+        self.assertGreater(sells,0,"The simulator should exercise at least one fictitious exit")
+
     def test_limit_exposure_even_across_symbols(self):
         set_paused(False,self.db)
         run_steps(self.symbols,steps=140,interval_seconds=0,db_path=self.db)
