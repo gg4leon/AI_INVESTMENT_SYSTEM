@@ -413,6 +413,8 @@ def process_second(
                 code="EXIT_"+outcomes[sym][0]
             elif sym in positions:
                 code="HOLD_POSITION"
+            elif con.execute("SELECT 1 FROM micro_pending WHERE symbol=?", (sym,)).fetchone():
+                code="ORDER_PENDING"
             elif trades_recent>=cfg.max_trades_per_60_ticks:
                 code="BLOCK_TRADE_LIMIT"
             else:
@@ -445,52 +447,31 @@ def process_second(
                 "INSERT INTO micro_decisions(tick,symbol,decision,score,reason) VALUES(?,?,?,?,?)",
                 (seq,sym,code,round(z,5),detail),
             )
-        # Rank deterministic: lowest past volatility first, then deepest pullback.
+        # Stage only. No execution is allowed using the decision tick.
         candidates.sort(key=lambda x:(x[0],x[1],x[2]))
-        for volatility,z,sym,weight,detail in candidates:
-            if sym in positions or len(positions)>=cfg.max_positions:
-                continue
-            equity_now,exposed=snapshot()
-            category=MARKET_BY_SYMBOL[sym].category
-            sector_used=_category_used(positions,mids,category)
-            reserved=max(0.,cfg.max_total_exposure*equity_now-exposed)
-            category_room=max(0.,cfg.max_sector_exposure*equity_now-sector_used)
-            budget=min(
-                cfg.max_asset_weight*equity_now, weight*equity_now,
-                reserved, category_room, cash
-            )
-            if category=="Criptomonedas":
-                budget=min(
-                    budget,
-                    max(0.,cfg.max_crypto_exposure*equity_now-sector_used),
+        pending_symbols={
+            x["symbol"] for x in con.execute("SELECT symbol FROM micro_pending")
+        }
+        free_slots=max(0,cfg.max_positions-len(positions)-len([
+            sym for sym in pending_symbols if sym not in positions
+        ]))
+        if recent_count<cfg.max_trades_per_60_ticks:
+            for volatility,z,sym,weight,detail in candidates:
+                if free_slots<=0:
+                    break
+                if sym in positions or sym in pending_symbols or sym in outcomes:
+                    continue
+                con.execute(
+                    "INSERT INTO micro_pending"
+                    "(symbol,side,decision_tick,target_weight,priority,reason)"
+                    "VALUES(?,?,?,?,?,?)",
+                    (sym,"BUY",seq,weight,round(-z,4),
+                     "RELATIVE_DISCOUNT_AFTER_REBOUND_NO_VERIFIED_CAUSE")
                 )
-            if budget < 50:
-                continue
-            ask=_costs(cfg,mids[sym],"BUY")
-            fee_ratio=cfg.fee_bps/10_000
-            qty=budget/(ask*(1+fee_ratio))
-            fee=qty*ask*fee_ratio
-            spent=qty*ask+fee
-            cash-=spent
-            positions[sym]=dict(
-                symbol=sym,category=category,qty=qty,basis=spent,
-                entry_fill=ask,entry_tick=seq,
-            )
-            con.execute(
-                "INSERT INTO micro_positions(symbol,category,qty,basis,entry_fill,entry_tick)"
-                " VALUES(?,?,?,?,?,?)",
-                (sym,category,qty,spent,ask,seq),
-            )
-            con.execute(
-                "INSERT INTO micro_trades(tick,symbol,side,qty,mid,fill,fee,realized_pnl,reason,cash_after)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (seq,sym,"BUY",qty,mids[sym],ask,fee,0.,"MEAN_REVERSION_CANDIDATE",cash),
-            )
-            events.append({
-                "symbol":sym,"event":"BUY_SIM",
-                "notional":round(spent,2),
-                "reason":"RELATIVE_PULLBACK_AFTER_BOUNCE_NOT_INTRINSIC_VALUE",
-            })
+                pending_symbols.add(sym)
+                free_slots-=1
+                events.append({"symbol":sym,"event":"BUY_PENDING",
+                               "weight_pct":weight*100,"decision_tick":seq})
         for sym in symbols:
             con.execute(
                 "INSERT INTO micro_ticks(tick,symbol,virtual_time,mid,event)"
@@ -501,6 +482,10 @@ def process_second(
         peak=max(peak,eq)
         dd=(peak-eq)/peak if peak>0 else 0.
         halted=dd>=cfg.drawdown_circuit_pct
+        if halted:
+            con.execute("DELETE FROM micro_pending WHERE side='BUY'")
+            events.append({"event":"KILL_SWITCH",
+                           "reason":"Portfolio drawdown threshold exceeded; no further entry orders"})
         con.execute(
             "UPDATE micro_state SET paused=CASE WHEN ? THEN 1 ELSE paused END,"
             "halted=?,tick=?,universe_json=?,scenario=?,policy_json=?,cash=?,equity=?,peak=?,updated_at=? WHERE id=1",
@@ -553,6 +538,7 @@ def dashboard(db_path=DEFAULT_DB, history_limit=360):
             "source":"SYNTHETIC_SECOND_FEED_ONLY",
             "state":state,"positions":positions,"trades":trades,
             "decisions":decisions,"equity":equity,
+            "pending":[dict(x) for x in con.execute("SELECT * FROM micro_pending ORDER BY symbol")],
             "notes":"No tick-level real feed. Only synthetic per-second scenarios, not investment predictions.",
         }
     finally:
