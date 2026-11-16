@@ -122,6 +122,11 @@ def _connect(path):
       exposure_pct REAL NOT NULL,positions INTEGER NOT NULL
     );
     """)
+    # Migration for existing AIS v0.9 accounts: do not erase old paper history.
+    cols={x["name"] for x in db.execute("PRAGMA table_info(live_state)")}
+    if "provider" not in cols:
+        db.execute("ALTER TABLE live_state ADD COLUMN provider TEXT")
+        db.commit()
     return db
 
 
@@ -244,6 +249,16 @@ def apply_real_quotes(
         if state["paused"] or state["halted"]:
             db.rollback()
             return {"status":"HALTED" if state["halted"] else "PAUSED","events":[]}
+        if state["provider"] is not None and state["provider"]!=market_provider:
+            db.rollback()
+            raise ValueError("Cannot mix different exchange feeds in one USD paper account")
+        if state["provider"] is None:
+            # Previous AIS accounts are Kraken; new Coinbase accounts have no
+            # history and are assigned on the first authenticated-by-parser quote.
+            if state["last_cycle_at"] is not None and market_provider!="KRAKEN_PUBLIC_WS_V2":
+                db.rollback()
+                raise ValueError("Existing Kraken paper account must not be reused for Coinbase")
+            db.execute("UPDATE live_state SET provider=? WHERE id=1",(market_provider,))
         cash=float(state["cash"])
         positions=_positions(db)
         missing_held=sorted(sym for sym in positions if sym not in valid)
@@ -447,7 +462,7 @@ def dashboard(db_path=LIVE_DB, limit=240):
         def get_rows(sql,args=()):
             return [dict(x) for x in db.execute(sql,args)]
         return {
-            "source":"KRAKEN_REAL_BID_ASK_PAPER_ONLY",
+            "source":(state["provider"] or "KRAKEN_PUBLIC_WS_V2")+"_PAPER_ONLY",
             "state":state,
             "positions":get_rows("SELECT * FROM live_positions ORDER BY symbol"),
             "pending":get_rows("SELECT * FROM live_orders ORDER BY symbol"),
