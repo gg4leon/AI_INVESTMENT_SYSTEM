@@ -37,3 +37,7 @@ jobs:
       - name: Kraken public connectivity probe (optional live network)
         continue-on-error: true
         run: python -m nory.kraken_probe --seconds 25 --symbols BTC-USD ETH-USD SOL-USD XRP-USD ADA-USD
+
+      - name: Coinbase public WebSocket connectivity probe (best effort)
+        continue-on-error: true
+        run: python -m nory.coinbase_probe --seconds 25 --symbols BTC-USD ETH-USD SOL-USD DOGE-USD
