@@ -1,10 +1,10 @@
-# AIS v0.6 — Investment Terminal
+# AIS v0.6.1 — Investment Terminal / Markets & Paper Automation
 
-**Aplicación de análisis financiero y backtesting histórico en modo simulación.** No realiza transacciones reales ni solicita acceso a bancos, brókeres o claves API.
+Plataforma educativa de investigación, gráficos, noticias y operaciones **100% simuladas**. **No conecta a brókeres, no ejecuta compras/ventas reales y no requiere depositar dinero.** El logotipo de AIS conserva el diseño original aportado por su creador, vectorizado para su uso en la interfaz.
 
-## Inicia la app en Windows (VS Code)
+## Ejecutar en Windows / VS Code
 
-Abre la carpeta `AI_INVESTMENT_SYSTEM` en VS Code y, en la terminal PowerShell:
+En la carpeta local AI_INVESTMENT_SYSTEM:
 
 ```powershell
 git status
@@ -14,58 +14,74 @@ python -m pip install -r requirements.txt
 python -m streamlit run streamlit_app.py
 ```
 
-Si la terminal ya muestra `(.venv)`, puedes omitir la activación. Si `git status` muestra archivos locales modificados, guárdalos o respáldalos primero; no sobrescribas trabajo.
+Si ya aparece `(.venv)`, no hace falta activar de nuevo. La aplicación local se abre en `http://127.0.0.1:8501`; también puedes hacer doble clic en `INICIAR_AIS.bat` tras instalar dependencias. Para detener Streamlit, pulsa `Ctrl+C` en la terminal.
 
-Tras instalar dependencias, en Windows también puedes abrir **`INICIAR_AIS.bat` con doble clic** para arrancar el dashboard sin introducir comandos. La app se enlaza a `127.0.0.1` (solo este equipo).
+**Si `git status` presenta CSV modificados que ya estaban versionados**, guarda una copia fuera de la carpeta antes de restaurarlos; no uses `git reset --hard`. El `.gitignore` ignora nuevas salidas pero no retira por sí solo archivos que Git ya seguía.
 
-Streamlit inicia un servidor **local** que normalmente se abre en `http://localhost:8501` desde el navegador. Para cerrarlo, vuelve a la terminal y pulsa `Ctrl+C`.
+## Panel de AIS
 
-La primera pantalla no contiene datos hasta ejecutar una simulación. Empieza por **Demo sintética (sin Internet)** y presiona **Ejecutar análisis y simulación**. Después prueba **Históricos de Yahoo** para descargar precios reales históricos cuando haya Internet. Los datos reales pueden estar demorados o incompletos. **Nunca se sustituyen por precios inventados si la descarga falla.**
+- **Resumen:** curva de capital, drawdown, retorno, exposición y señal del motor técnico.
+- **Mercado:** velas, medias móviles, RSI, MACD; permite más de 40 activos de distintas clases.
+- **Operaciones / Historial:** operaciones simuladas del backtest y sesiones persistentes en SQLite.
+- **Universo de mercados:** acciones EE. UU./México/internacionales, ETFs, cripto, forex, materias primas e índices.
+- **Automatización:** activar/pausar motor local, procesar una vela ficticia y ver cuentas/libro de eventos.
+- **Noticias:** titulares RSS para investigación, incluyendo cultura, marcas y celebridades. *No se tratan como hechos verificados* y **no influyen en operaciones**.
 
-## Qué hace la interfaz
+La paleta de diseño usa negro, rojo intenso del logotipo original y blanco.
 
-- **Resumen:** capital ficticio, curva de equity, drawdown, exposición, señales experimentales y riesgo.
-- **Mercado:** velas OHLC y gráficos interactivos de SMA10, SMA30, RSI14 y MACD.
-- **Operaciones:** historial de operaciones cerradas (simuladas) y exportación CSV.
-- **Historial:** sesiones y parámetros guardados localmente en SQLite, más exportación JSON.
-- **Metodología:** supuestos y limitaciones.
-- **Barra lateral:** origen de datos, mercado, historial, capital ficticio, porcentaje por entrada, stop, comisiones y deslizamiento.
+### Cómo iniciar el operador automático de cartera simulada
 
-**No hay inversión en vivo.** Los importes del panel son ficticios y están en **unidades de la moneda de cotización del activo**, no implican saldo real en MXN ni requieren depositar dinero.
+1. Abre la aplicación, en la sección **🤖 Automatización · cartera ficticia** pulsa **Activar operador de SIMULACIÓN**. Arranca pausado por defecto.
+2. Para probarlo sin Internet, elige un instrumento y activa **Datos sintéticos para prueba**; pulsa **Ejecutar un ciclo ficticio ahora**. La ejecución usa precios completamente inventados y queda etiquetada como tal.
+3. Para ejecutar un ciclo usando **datos históricos reales** de Yahoo (no cotizaciones ejecutables), abre **otra terminal PowerShell**:
 
-## Ejecuta pruebas
+```powershell
+python -m automation.worker --once --symbols SPY AAPL MSFT BTC-USD
+```
+
+4. Para que AIS ejecute una revisión ficticia cada 60 minutos **mientras la PC y esa terminal sigan encendidas**:
+
+```powershell
+python -m automation.worker --loop --interval-minutes 60 --symbols SPY AAPL MSFT BTC-USD
+```
+
+Para probar el bucle sin Internet, añade `--demo`. El motor se detiene con `Ctrl+C` o con **Pausar operador** en la app. El proceso no trabaja cuando Windows está apagado o suspendido. Un mismo símbolo y vela no se procesan dos veces. El máximo es 15 símbolos por ejecución. Ten presente que hay límites de peticiones a la fuente de datos.
+
+### Qué significan los "movimientos"
+
+El motor crea **cuentas ficticias separadas por activo, origen y moneda**. No es correcto sumar dólares y pesos como si fueran la misma divisa. Cada cuenta inicia con 10,000 unidades **inventadas** de la moneda de cotización. Con señal alcista y sin posición, simula una compra de 10% del efectivo; con señal bajista o stop, simula una venta de su posición. Incluye comisión, deslizamiento y control de posición única. Una señal neutra registra `HOLD`. Una misma fecha se registra una vez; evita duplicados incluso tras reiniciar.
+
+**Limitación crucial:** los fills usan el cierre observado de una vela histórica como precio **hipotético**, posiblemente ya no disponible; la app **no reproduce ejecución real ni puede garantizar stops**. La última vela del día actual se descarta si podría estar abierta. No hay órdenes reales, datos minuto a minuto, pujas/ofertas, libro de órdenes, impuestos ni liquidez. Para automatización real futura hacen falta licencias, elegibilidad de cuenta, validación fuera de muestra, reglas de control, un feed de precios apropiado y supervisión legal/técnica.
+
+La base de datos del trabajador está en `data/ais_paper.sqlite3`, distinta del historial de backtests `data/ais_history.sqlite3`. Ambas se ignoran en Git. No existe un broker ni cuentas conectadas.
+
+**Índices, divisas y futuros son solo analíticos**; no se pueden tratar como acciones directamente comprables. Las criptomonedas y acciones están representadas únicamente por cuentas ficticias educativas.
+
+### Actualidad, famosos y rumores
+
+El lector RSS obtiene **titulares de terceros**, no verifica independientemente su veracidad. En la pestaña de investigación puedes consultar noticias de empresas y cultura de marcas. Los titulares que mencionan rumores se marcan como tales. **No se utiliza información privada, chismes, relaciones de famosos o rumores no contrastados para generar operaciones**. No hay indicador de sentimiento validado ni relación causal demostrada entre una noticia y un rendimiento futuro. Los movimientos automáticos se basan únicamente en las reglas técnicas ya documentadas.
+
+## Arquitectura
+
+```text
+assets/ais_original.svg           # vectorización fiel del logo aportado por el usuario
+streamlit_app.py                  # panel rojo/negro/blanco
+app/markets.py                    # catálogo de mercados y divisas
+app/news.py                       # RSS público de contexto
+app/service.py                    # análisis histórico
+app/storage.py                    # SQLite para backtesting
+automation/paper.py               # motor de saldos y libro de eventos ficticios
+automation/worker.py              # comprobación local repetible (nunca brokers)
+analysis/                        # indicadores técnicos
+backtesting/engine.py             # backtester histórico
+tests/                            # pruebas sin red
+```
+
+## Pruebas y limitaciones
 
 ```powershell
 python -m unittest discover -s tests -v
 python main.py --demo --symbols SPY
 ```
 
-El CLI de v0.5 continúa disponible: `python main.py` o `python main.py --mode backtest --period 5y --symbols SPY`.
-
-## Diseño y datos
-
-```text
-streamlit_app.py           # interfaz local (Streamlit + Plotly)
-app/service.py             # orquestación de análisis/simulación
-app/storage.py             # base SQLite local
-data/demo_data.py          # fuente sintética determinista
-data/market_data.py        # fuente histórica Yahoo
-analysis/                  # SMA, RSI, MACD, señales y riesgo
-backtesting/engine.py      # motor histórico long-only/cash
-data/ais_history.sqlite3   # se crea localmente; ignorada por Git
-```
-
-Cada sesión contiene el origen de datos, velas, señales, métricas, curva de capital y operaciones simuladas. SQLite **no está cifrado**; mantenlo en tu equipo y no publiques archivos con información privada. La aplicación se ejecuta localmente; **no proporciona usuarios, contraseñas, hosting, acceso remoto, ni autenticación**. No la expongas directamente a Internet ni la publiques como servicio sin medidas de seguridad adicionales.
-
-## Reglas del backtest
-
-1. El indicador histórico se calcula con velas anteriores a la apertura de ejecución: no usa el futuro.
-2. La señal se ejecuta a la siguiente apertura; comisión y deslizamiento se aplican en la simulación.
-3. Solo posiciones largas con asignación parcial de efectivo, sin margen ni venta corta.
-4. Stop aproximado basado en el cierre anterior; el precio siguiente puede abrir más abajo (gap).
-5. Registra operaciones cerradas, retornos netos, drawdown, volatilidad anualizada, Sharpe simplificado y exposición.
-6. Línea de **comprar y mantener**: benchmark bruto sin comisiones ni misma exposición, por lo que no es una comparación ajustada al riesgo.
-
-**No equivale a una estrategia probada o rentable.** Falta validación fuera de muestra, walk-forward, comprobación de sesgos, spreads variables, intereses del efectivo, fiscalidad y análisis estadístico. Yahoo Finance puede no ofrecer datos adecuados para operar y el último precio puede no estar cerrado. La "puntuación" del motor de señales indica acuerdo de reglas, **no probabilidad de acierto**.
-
-AIS v0.6 mantiene el módulo de consola y agrega una interfaz para experimentación, no un asesor de inversiones ni un sistema de transacciones reales.
+GitHub Actions ejecuta esas pruebas. Que las pruebas pasen indica que el código funciona conforme a sus supuestos, **no que una estrategia sea rentable ni apta para gestionar dinero real**. Falta validación temporal fuera de muestra, comparación ajustada a riesgos y costes, simulación de datos en tiempo de mercado, control de sesgos y verificación humana independiente. Yahoo Finance puede limitar, modificar o interrumpir el acceso y sus datos pueden estar atrasados/incompletos. No extrapolar resultados de datos sintéticos a mercados reales.

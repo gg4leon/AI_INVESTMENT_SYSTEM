@@ -9,12 +9,9 @@ from analysis.signal_engine import generate_signal
 from backtesting.engine import BacktestConfig, run_backtest
 from data.demo_data import make_demo_data
 from data.market_data import get_market_data
+from app.markets import MARKETS
 
-MARKETS = {
-    "SPY": "ETF S&P 500",
-    "BTC-USD": "Bitcoin",
-    "EURUSD=X": "Euro / Dolar",
-}
+DEFAULT_MARKETS = ('SPY', 'BTC-USD', 'EURUSD=X')
 OUTPUT = Path("data")
 
 
@@ -119,7 +116,7 @@ def main() -> int:
     print("NO se conectan brokers, NO se envian ordenes ni se usa capital real.")
     if args.demo:
         print("*** DATOS INVENTADOS PARA PRUEBAS; NO SON COTIZACIONES ***")
-    symbols = args.symbols or list(MARKETS)
+    symbols = args.symbols or list(DEFAULT_MARKETS)
     successful = sum(analyze_market(
         symbol, MARKETS[symbol], args.mode, args.period, args.demo
     ) for symbol in symbols)
